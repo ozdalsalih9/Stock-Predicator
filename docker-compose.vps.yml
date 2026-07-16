@@ -11,14 +11,14 @@ services:
     image: postgres:17-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: probora
-      POSTGRES_USER: probora
+      POSTGRES_DB: ${POSTGRES_DB:-probora}
+      POSTGRES_USER: ${POSTGRES_USER:-probora}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.vps}
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./infra/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U probora -d probora"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-probora} -d ${POSTGRES_DB:-probora}"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -35,7 +35,7 @@ services:
         condition: service_healthy
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__Probora: Host=postgres;Port=5432;Database=probora;Username=probora;Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Probora: Host=postgres;Port=5432;Database=${POSTGRES_DB:-probora};Username=${POSTGRES_USER:-probora};Password=${POSTGRES_PASSWORD}
       OTEL_SDK_DISABLED: "true"
     networks: [private]
     logging: *default-logging
@@ -50,7 +50,7 @@ services:
         condition: service_healthy
     environment:
       DOTNET_ENVIRONMENT: Production
-      ConnectionStrings__Probora: Host=postgres;Port=5432;Database=probora;Username=probora;Password=${POSTGRES_PASSWORD}
+      ConnectionStrings__Probora: Host=postgres;Port=5432;Database=${POSTGRES_DB:-probora};Username=${POSTGRES_USER:-probora};Password=${POSTGRES_PASSWORD}
       Models__Root: /app/artifacts/models
       TwelveData__Enabled: ${TWELVE_DATA_ENABLED:-true}
       TwelveData__ApiKey: ${TWELVE_DATA_API_KEY:?TWELVE_DATA_API_KEY must be set in .env.vps}

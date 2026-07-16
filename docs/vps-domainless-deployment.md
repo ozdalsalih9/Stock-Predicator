@@ -141,6 +141,19 @@ curl --fail http://127.0.0.1:8090/health/ready
 docker compose --env-file .env.vps -f docker-compose.vps.yml logs --tail 150 worker
 ```
 
+Eski Parai kurulumunu yerinde Probora'ya yükseltiyorsanız mevcut PostgreSQL volume'unu korumak
+için `.env.vps` dosyasına aşağıdaki uyumluluk değerlerini ekleyin ve komutlara `-p parai` verin:
+
+```bash
+POSTGRES_DB=parai
+POSTGRES_USER=parai
+
+docker compose -p parai --env-file .env.vps -f docker-compose.vps.yml up -d --build
+```
+
+Bu yalnızca fiziksel veritabanı ve Docker project kimliğini korur. Uygulama bağlantı anahtarı,
+kod adları ve veritabanı şeması migration sonrasında Probora olur.
+
 Worker baslangicta migration'i uygular, model registry taramasini calistirir ve startup tahmin
 tetikleyicisini bes dakikada bir tekrarlar. Beklenen yeni shadow kayitlari:
 
