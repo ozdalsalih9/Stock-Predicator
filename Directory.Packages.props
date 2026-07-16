@@ -5,7 +5,7 @@
   <ItemGroup>
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
     <PackageVersion Include="Microsoft.OpenApi" Version="2.10.0" />
-    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.4" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.10" />
     <PackageVersion Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
     <PackageVersion Include="Quartz.Extensions.Hosting" Version="3.18.2" />
     <PackageVersion Include="Quartz.Serialization.SystemTextJson" Version="3.18.2" />
