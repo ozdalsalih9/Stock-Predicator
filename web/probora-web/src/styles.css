@@ -214,10 +214,10 @@ h1, h2, h3, p { text-wrap: pretty; }
 }
 
 @media (max-width: 600px) {
-  .workspace main { padding: 24px 14px 50px; }.workspace-topbar { height: 60px; padding: 0 14px; }.workspace-topbar > div span { display: none; }.workspace-footer { flex-direction: column; margin: 0 14px; }
+  .workspace main { padding: 24px 14px 50px; }.workspace-topbar { height: 60px; padding: 0 14px; }.workspace-topbar > div span, .workspace-topbar > .status-badge { display: none; }.workspace-footer { flex-direction: column; margin: 0 14px; }
   .page-stack { gap: 13px; }.page-header { align-items: flex-start; flex-direction: column; gap: 16px; }.page-header h1 { font-size: 34px; }.page-header > div > p:last-child { font-size: 11px; }
   .surface { padding: 17px; }.section-heading h2 { font-size: 17px; }
-  .overview-hero { min-height: 0; padding: 22px 0 28px; }.overview-hero h1 { font-size: 42px; }.overview-hero > div:first-child > p:last-of-type { font-size: 12px; }.hero-actions { align-items: stretch; flex-direction: column; }
+  .overview-hero { min-height: 0; padding: 22px 0 28px; overflow: visible; }.overview-hero h1 { max-width: 100%; font-size: clamp(34px, 10.2vw, 39px); line-height: 1.02; overflow-wrap: anywhere; }.overview-hero h1 em { display: block; }.overview-hero > div:first-child > p:last-of-type { font-size: 12px; }.hero-actions { align-items: stretch; flex-direction: column; }
   .metric-grid, .health-service-grid { grid-template-columns: repeat(2, 1fr); }.metric-card { min-height: 126px; padding: 14px; }.metric-card > strong { font-size: 26px; }
   .model-journey { grid-template-columns: 1fr; }.model-journey li { min-height: 45px; }.model-journey li::after { top: 27px; bottom: -14px; left: 13px; width: 1px; height: auto; }.model-journey li:nth-child(3)::after { display: block; }.model-journey li:last-child::after { display: none; }
   .market-monitor, .probability-panel { min-height: 0; }.price-chart { height: 240px; }.probability-legend strong { font-size: 14px; }
