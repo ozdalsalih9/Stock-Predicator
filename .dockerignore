@@ -1,0 +1,15 @@
+.git
+.github
+.venv
+**/bin
+**/obj
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+artifacts
+data
+mlruns
+infra/volumes
+*.log

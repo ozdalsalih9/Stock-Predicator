@@ -1,0 +1,125 @@
+name: probora
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: probora
+      POSTGRES_USER: probora
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-probora_dev}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U probora -d probora"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    restart: unless-stopped
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-probora-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-probora-minio-dev}
+    volumes:
+      - minio-data:/data
+    ports:
+      - "127.0.0.1:9001:9001"
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    depends_on: [minio]
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD};
+      do sleep 2; done; mc mb --ignore-existing local/probora-models"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-probora-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-probora-minio-dev}
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: infra/docker/mlflow.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+    command:
+      - --backend-store-uri
+      - postgresql+psycopg://probora:${POSTGRES_PASSWORD:-probora_dev}@postgres:5432/mlflow
+      - --artifacts-destination
+      - s3://probora-models
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-probora-minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-probora-minio-dev}
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    ports:
+      - "127.0.0.1:5000:5000"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.136.0
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./infra/otel/collector.yml:/etc/otelcol/config.yml:ro
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Probora: Host=postgres;Port=5432;Database=probora;Username=probora;Password=${POSTGRES_PASSWORD:-probora_dev}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/worker.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      DOTNET_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      ConnectionStrings__Probora: Host=postgres;Port=5432;Database=probora;Username=probora;Password=${POSTGRES_PASSWORD:-probora_dev}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      Models__Root: /app/artifacts/models
+      TwelveData__Enabled: ${TWELVE_DATA_ENABLED:-false}
+      TwelveData__ApiKey: ${TWELVE_DATA_API_KEY:-}
+      Gdelt__Enabled: ${GDELT_ENABLED:-false}
+    volumes:
+      - ./artifacts/models:/app/artifacts/models:ro
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on: [api, web]
+    environment:
+      PROBORA_DOMAIN: ${PROBORA_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  postgres-data:
+  minio-data:
+  caddy-data:
+  caddy-config:

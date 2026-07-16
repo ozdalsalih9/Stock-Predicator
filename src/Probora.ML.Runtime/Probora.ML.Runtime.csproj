@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../Probora.Domain/Probora.Domain.csproj" />
+    <ProjectReference Include="../Probora.Contracts/Probora.Contracts.csproj" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
+  </ItemGroup>
+</Project>

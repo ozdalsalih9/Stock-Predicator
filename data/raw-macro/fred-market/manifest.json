@@ -1,0 +1,29 @@
+{
+  "downloaded_at": "2026-07-15T11:46:32.508826+00:00",
+  "source": "https://fred.stlouisfed.org/graph/fredgraph.csv",
+  "observation_start": "2013-01-01",
+  "vintage_policy": "current-vintage-research-only",
+  "availability_lag_days": 7,
+  "files": {
+    "VIXCLS": {
+      "path": "VIXCLS.csv",
+      "sha256": "2d77624c9ab54e5c9825d0b41f76fb7ea6229b64a0ceae49f9aaf7f0acff7036",
+      "bytes": 59478
+    },
+    "DGS2": {
+      "path": "DGS2.csv",
+      "sha256": "7759b886bc5cb8705612794f66afe350a8e95621ac9d4e79a8d7665dfc0ef126",
+      "bytes": 55898
+    },
+    "DGS10": {
+      "path": "DGS10.csv",
+      "sha256": "68be0b89038005afc757b9c2357fbaa39ed3d21185406b67ee9283be1fea4578",
+      "bytes": 55899
+    },
+    "NFCI": {
+      "path": "NFCI.csv",
+      "sha256": "a39b95a6fb5d59dfc630b400da790f80d5b2d2110437d308c2ce5c81409ae692",
+      "bytes": 12704
+    }
+  }
+}

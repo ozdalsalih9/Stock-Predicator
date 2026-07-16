@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Probora.Domain/Probora.Domain.csproj" />
+    <Project Path="src/Probora.Contracts/Probora.Contracts.csproj" />
+    <Project Path="src/Probora.Application/Probora.Application.csproj" />
+    <Project Path="src/Probora.Infrastructure/Probora.Infrastructure.csproj" />
+    <Project Path="src/Probora.ML.Runtime/Probora.ML.Runtime.csproj" />
+    <Project Path="src/Probora.Api/Probora.Api.csproj" />
+    <Project Path="src/Probora.Worker/Probora.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Probora.UnitTests/Probora.UnitTests.csproj" />
+  </Folder>
+</Solution>

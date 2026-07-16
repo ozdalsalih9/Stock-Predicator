@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "probora-ml"
+version = "0.1.0"
+description = "Versioned data, feature, evaluation and model export pipeline for Probora."
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "httpx>=0.28,<1",
+  "lightgbm>=4.6,<5",
+  "mlflow>=3,<4",
+  "numpy>=2.2,<3",
+  "onnxmltools>=1.13,<2",
+  "onnxruntime>=1.20,<2",
+  "pandas>=2.2,<3",
+  "pyarrow>=23.0.1,<24",
+  "pydantic>=2.10,<3",
+  "psycopg[binary]>=3.2,<4",
+  "scikit-learn>=1.6,<2",
+  "typer>=0.15,<1"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=9.0.3,<10",
+  "pytest-cov>=6,<7",
+  "ruff>=0.9,<1"
+]
+dvc = ["dvc[s3]>=3.59,<4"]
+
+[project.scripts]
+probora-ml = "probora_ml.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/probora_ml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "RUF"]

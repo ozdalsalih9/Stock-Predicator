@@ -1,0 +1,22 @@
+(probora_routes) {
+  encode zstd gzip
+  reverse_proxy /api/* api:8080
+  reverse_proxy /health/* api:8080
+  reverse_proxy /openapi/* api:8080
+  reverse_proxy /hubs/* api:8080
+  reverse_proxy web:80
+  header -Server
+}
+
+# Local HTTP is intentional: embedded browsers cannot accept Caddy's private
+# development CA. Public deployments still use the HTTPS site below.
+http://localhost {
+  import probora_routes
+}
+
+{$PROBORA_DOMAIN:localhost} {
+  import probora_routes
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+  }
+}

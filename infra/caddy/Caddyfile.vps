@@ -1,0 +1,16 @@
+:80 {
+	encode zstd gzip
+
+	@backend {
+		path /api/* /health/* /openapi/* /hubs/*
+	}
+	reverse_proxy @backend api:8080
+	reverse_proxy web:80
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+	}
+}
