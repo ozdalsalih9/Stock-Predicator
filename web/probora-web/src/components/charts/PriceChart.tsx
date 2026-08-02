@@ -41,21 +41,21 @@ export function PriceChart({ bars, interval = '1h' }: { bars: PriceBar[]; interv
                 <stop offset="100%" stopColor="#55dfb2" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid vertical={false} stroke="rgba(148, 179, 207, .10)" />
+            <CartesianGrid vertical={false} stroke="rgba(184, 207, 192, .10)" />
             <XAxis
               dataKey="time"
               type="number"
               domain={['dataMin', 'dataMax']}
               tickFormatter={(value: number) => new Intl.DateTimeFormat('tr-TR', { day: '2-digit', month: 'short', timeZone: 'UTC' }).format(value)}
-              stroke="#70859a"
+              stroke="#8d9c92"
               tickLine={false}
               axisLine={false}
-              fontSize={10}
+              fontSize={11}
               minTickGap={38}
             />
-            <YAxis domain={['auto', 'auto']} tickFormatter={(value: number) => formatPrice(value)} stroke="#70859a" tickLine={false} axisLine={false} fontSize={10} width={65} />
+            <YAxis domain={['auto', 'auto']} tickFormatter={(value: number) => formatPrice(value)} stroke="#8d9c92" tickLine={false} axisLine={false} fontSize={11} width={65} />
             <Tooltip
-              contentStyle={{ background: '#0d1b2b', border: '1px solid rgba(148,179,207,.18)', borderRadius: 8, fontSize: 11 }}
+              contentStyle={{ background: '#181d1a', border: '1px solid rgba(184,207,192,.18)', borderRadius: 8, fontSize: 12 }}
               labelFormatter={(value) => new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' }).format(Number(value))}
               formatter={(value) => [formatPrice(Number(value)), 'Kapanış']}
             />

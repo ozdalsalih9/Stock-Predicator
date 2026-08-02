@@ -26,6 +26,11 @@ public sealed class PredictionRecord
     public double UpProbability { get; set; }
     public double NeutralProbability { get; set; }
     public double DownProbability { get; set; }
+    public string? BaselineType { get; set; }
+    public double? BaselineUpProbability { get; set; }
+    public double? BaselineNeutralProbability { get; set; }
+    public double? BaselineDownProbability { get; set; }
+    public double? NeutralBandThreshold { get; set; }
     public double ReturnP10 { get; set; }
     public double ReturnP50 { get; set; }
     public double ReturnP90 { get; set; }
@@ -39,6 +44,52 @@ public sealed class PredictionRecord
     public string ArtifactSha256 { get; set; } = string.Empty;
     public bool IsShadow { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+}
+
+public sealed class PredictionOutcome
+{
+    public long Id { get; set; }
+    public long PredictionId { get; set; }
+    public DateTimeOffset TargetTime { get; set; }
+    public double CurrentClose { get; set; }
+    public double TargetClose { get; set; }
+    public double RealizedReturn { get; set; }
+    public int RealizedDirection { get; set; }
+    public double RealizedVolatility { get; set; }
+    public double DirectionBrierScore { get; set; }
+    public double? BaselineBrierScore { get; set; }
+    public bool IntervalCovered { get; set; }
+    public double QuantilePinballLoss { get; set; }
+    public double RiskAbsoluteError { get; set; }
+    public string SourceDataSha256 { get; set; } = string.Empty;
+    public DateTimeOffset ResolvedAt { get; set; }
+}
+
+public sealed class PredictionExplanation
+{
+    public long Id { get; set; }
+    public long PredictionId { get; set; }
+    public string Provider { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
+    public string PromptVersion { get; set; } = string.Empty;
+    public string InputJson { get; set; } = "{}";
+    public string InputSha256 { get; set; } = string.Empty;
+    public string OutputJson { get; set; } = "{}";
+    public string Status { get; set; } = "pending";
+    public string? FailureReason { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+}
+
+public sealed class ModelPromotionDecision
+{
+    public long Id { get; set; }
+    public Guid ModelVersionId { get; set; }
+    public string Decision { get; set; } = string.Empty;
+    public string DecidedBy { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public string EvidenceJson { get; set; } = "{}";
+    public DateTimeOffset DecidedAt { get; set; }
 }
 
 public sealed class ModelVersion

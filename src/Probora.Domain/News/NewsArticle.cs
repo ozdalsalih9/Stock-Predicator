@@ -8,7 +8,9 @@ public sealed class NewsArticle
     public string SourceName { get; set; } = string.Empty;
     public string SourceUrl { get; set; } = string.Empty;
     public DateTimeOffset PublishedAt { get; set; }
+    public DateTimeOffset AvailableAt { get; set; }
     public DateTimeOffset RetrievedAt { get; set; }
+    public string Provider { get; set; } = string.Empty;
     public string Language { get; set; } = string.Empty;
     public string ContentHash { get; set; } = string.Empty;
     public double SourceReliabilityScore { get; set; }

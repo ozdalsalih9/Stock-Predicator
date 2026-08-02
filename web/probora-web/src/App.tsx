@@ -10,6 +10,7 @@ const AssetsPage = lazy(() => import('./pages/AssetsPage').then((module) => ({ d
 const AssetDetailPage = lazy(() => import('./pages/AssetDetailPage').then((module) => ({ default: module.AssetDetailPage })))
 const ShadowPage = lazy(() => import('./pages/ShadowPage').then((module) => ({ default: module.ShadowPage })))
 const ModelsPage = lazy(() => import('./pages/ModelsPage').then((module) => ({ default: module.ModelsPage })))
+const ResearchPage = lazy(() => import('./pages/ResearchPage').then((module) => ({ default: module.ResearchPage })))
 const DataHealthPage = lazy(() => import('./pages/DataHealthPage').then((module) => ({ default: module.DataHealthPage })))
 const SystemFlowPage = lazy(() => import('./pages/SystemFlowPage').then((module) => ({ default: module.SystemFlowPage })))
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then((module) => ({ default: module.SettingsPage })))
@@ -25,6 +26,7 @@ export default function App() {
             <Route path="assets/:symbol" element={<AssetDetailPage />} />
             <Route path="shadow" element={<ShadowPage />} />
             <Route path="models" element={<ModelsPage />} />
+            <Route path="research" element={<ResearchPage />} />
             <Route path="health" element={<DataHealthPage />} />
             <Route path="flow" element={<SystemFlowPage />} />
             <Route path="settings" element={<SettingsPage />} />

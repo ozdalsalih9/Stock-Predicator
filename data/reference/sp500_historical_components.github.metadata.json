@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "imported_at": "2026-07-31T11:53:37.245726+00:00",
+  "source_repository": "https://github.com/fja05680/sp500",
+  "source_archive": "C:\\Users\\musta\\Downloads\\sp500-master.zip",
+  "source_archive_sha256": "18175f59d9ce1ec4e9f2c26ec42f47669808b2ea5d93ca6f2cf10c227c137a16",
+  "source_entry": "sp500-master/S&P 500 Historical Components & Changes (Updated).csv",
+  "source_entry_crc32": "10027974",
+  "license": "MIT",
+  "license_sha256": "a0a71da320f7c856f189569ddb5c46a576cf02caae28ead6c40a27c0de006992",
+  "row_count": 2718,
+  "first_date": "1996-01-02",
+  "last_date": "2026-06-30",
+  "distinct_ticker_count": 1206,
+  "minimum_member_count": 487,
+  "maximum_member_count": 507,
+  "output_sha256": "0a56d59ab5b6313064df9484312cd048a0103341195e5a6154feb6ccb74066e8"
+}

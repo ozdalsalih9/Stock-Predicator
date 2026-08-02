@@ -106,3 +106,80 @@ public sealed record ShadowPredictionDashboardResponse(
     int TotalPredictions,
     int TotalMaturedPredictions,
     IReadOnlyList<ShadowPredictionModelResponse> Models);
+
+public sealed record LiveModelScoreResponse(
+    string Version,
+    string AssetClass,
+    int HorizonDays,
+    int OutcomeCount,
+    int EvaluationDays,
+    int DownCount,
+    int NeutralCount,
+    int UpCount,
+    double? BrierScore,
+    double? BaselineBrierScore,
+    double? BrierSkillScore,
+    double? ExpectedCalibrationError,
+    double? IntervalCoverage,
+    double? QuantilePinballLoss,
+    double? RiskMeanAbsoluteError,
+    string PromotionState,
+    IReadOnlyList<string> PromotionBlockers);
+
+public sealed record LiveScoringDashboardResponse(
+    DateTimeOffset CheckedAt,
+    string State,
+    int TotalOutcomes,
+    int RequiredOutcomesPerModel,
+    int RequiredEvaluationDays,
+    IReadOnlyList<LiveModelScoreResponse> Models);
+
+public sealed record NewsProviderStatusResponse(
+    string Provider,
+    int Articles24Hours,
+    DateTimeOffset? LatestAvailableAt,
+    DateTimeOffset? LastSeenAt,
+    string State);
+
+public sealed record NewsIntelligenceDashboardResponse(
+    DateTimeOffset CheckedAt,
+    string State,
+    int Articles24Hours,
+    DateTimeOffset? LatestAvailableAt,
+    DateTimeOffset? LastSeenAt,
+    int SuccessfulExplanations24Hours,
+    int FailedExplanations24Hours,
+    DateTimeOffset? LatestExplanationAt,
+    IReadOnlyList<NewsProviderStatusResponse> Providers);
+
+public sealed record ResearchPipelineFailureResponse(
+    string Symbol,
+    string ErrorType);
+
+public sealed record ResearchPipelineDashboardResponse(
+    DateTimeOffset CheckedAt,
+    DateTimeOffset? LastUpdatedAt,
+    DateTimeOffset? CoverageCheckedAt,
+    string State,
+    int FrozenUniverseSize,
+    int CurrentUniverseSize,
+    int BatchNumber,
+    int BatchCount,
+    int BatchSize,
+    int BatchProcessedSymbols,
+    int ProcessedSymbols,
+    int SuccessfulSymbols,
+    int FailedSymbols,
+    long DownloadedBars,
+    double OverallProgressPercent,
+    double BatchProgressPercent,
+    double? MeanDailyCoverage,
+    double? MinimumDailyCoverage,
+    double? LatestDailyCoverage,
+    double RequiredDailyCoverage,
+    bool CoverageReady,
+    DateOnly? MembershipLastSnapshotDate,
+    int? MembershipFreshnessDays,
+    bool MembershipFresh,
+    string NextStep,
+    IReadOnlyList<ResearchPipelineFailureResponse> RecentFailures);

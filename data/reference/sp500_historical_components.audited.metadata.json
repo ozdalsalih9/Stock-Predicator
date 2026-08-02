@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "generated_at": "2026-07-31T11:53:37.417815+00:00",
+  "frozen_file": "data\\reference\\sp500_historical_components.github.csv",
+  "frozen_sha256": "0a56d59ab5b6313064df9484312cd048a0103341195e5a6154feb6ccb74066e8",
+  "current_tail_file": "data\\reference\\sp500_historical_components.current.csv",
+  "current_tail_sha256": "46870a5b824abe412ce60d832e3553bcf996f5edd96cd0fdfc09163571cc0d92",
+  "frozen_last_date": "2026-06-30",
+  "tail_rows": 1,
+  "last_date": "2026-07-20",
+  "row_count": 2719,
+  "output_sha256": "b4973a955c7698b846148e5f9fc4a2c7228d248e80bb9cd6a22380492de44444"
+}

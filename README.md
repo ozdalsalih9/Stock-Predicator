@@ -138,6 +138,17 @@ Detaylar: [model yönetişimi](docs/model-governance.md),
 [veri kaynakları](docs/data-sources.md) ve
 [ürün bildirimi](docs/legal-disclosure.tr.md).
 
+Canlı terfi kararı artifact manifest'inden otomatik verilmez. Yeni tahminler kendi baseline
+olasılıklarını ve üretildiği anda kullanılan volatiliteye bağlı neutral-band eşiğini saklar.
+Ufuk dolduğunda worker gerçekleşen etiketi değişmez fiyat-bar hash'iyle çözer ve model Brier,
+baseline Brier, Brier skill, ECE, P10-P90 kapsama, pinball loss ve risk MAE değerlerini üretir.
+Bir aday ancak en az 100 sonuç, 20 farklı değerlendirme günü, her sınıfta 10 sonuç, en az +%5
+Brier skill, en fazla %5 ECE ve %75-%90 interval coverage sağlarsa manuel incelemeye açılır;
+bu koşulların geçilmesi dahi otomatik production terfisi yapmaz.
+
+Yeni eğitim artifact'ları ayrıca `runtime_parity.json` taşır. Registry Python'da dondurulan referans
+çıktıları aynı ONNX dosyalarıyla .NET'te yeniden üretmeden modeli shadow adayı olarak kaydetmez.
+
 ## Yeniden adlandırma notu
 
 Projenin güncel adı Probora'dır. Eski kurulumlardan gelen `parai-*` model sürüm kimlikleri ve

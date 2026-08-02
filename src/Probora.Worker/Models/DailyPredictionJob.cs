@@ -9,6 +9,7 @@ using Probora.Domain.Markets;
 using Probora.Infrastructure.Persistence;
 using Probora.ML.Runtime.Features;
 using Probora.ML.Runtime.Inference;
+using Probora.ML.Runtime.Training;
 using Probora.Worker.MarketData;
 using Quartz;
 
@@ -136,6 +137,12 @@ public sealed class DailyPredictionJob(
 
                 using OnnxModelBundle bundle = OnnxModelBundle.Load(model.ArtifactPath);
                 RuntimePrediction prediction = bundle.Predict(vector);
+                RuntimeDirectionPrediction baseline = bundle.PredictBaseline(vector);
+                double neutralBandThreshold = TargetLabeler.NeutralBandThreshold(
+                    vector.Values["volatility_30d"],
+                    model.HorizonDays,
+                    vector.Values["volatility_90d"],
+                    periodsPerYear: 365);
                 bool isFresh = vector.SnapshotTime == targetCutoff &&
                     inferenceTime - history[^1].Time <= TimeSpan.FromHours(26);
                 bool featuresComplete = vector.Values["derivatives_available"] >= 0.5;
@@ -172,6 +179,11 @@ public sealed class DailyPredictionJob(
                     UpProbability = prediction.Up,
                     NeutralProbability = prediction.Neutral,
                     DownProbability = prediction.Down,
+                    BaselineType = bundle.Manifest.BaselineType,
+                    BaselineUpProbability = baseline.Up,
+                    BaselineNeutralProbability = baseline.Neutral,
+                    BaselineDownProbability = baseline.Down,
+                    NeutralBandThreshold = neutralBandThreshold,
                     ReturnP10 = prediction.P10,
                     ReturnP50 = prediction.P50,
                     ReturnP90 = prediction.P90,
@@ -302,6 +314,12 @@ public sealed class DailyPredictionJob(
 
                 using OnnxModelBundle bundle = OnnxModelBundle.Load(model.ArtifactPath);
                 RuntimePrediction prediction = bundle.Predict(vector);
+                RuntimeDirectionPrediction baseline = bundle.PredictBaseline(vector);
+                double neutralBandThreshold = TargetLabeler.NeutralBandThreshold(
+                    vector.Values["volatility_20s"],
+                    model.HorizonDays,
+                    vector.Values["volatility_60s"],
+                    periodsPerYear: 252);
                 ConfidenceDecision confidence = ConfidenceGate.Evaluate(new ConfidenceInput(
                     prediction.Up,
                     prediction.Neutral,
@@ -335,6 +353,11 @@ public sealed class DailyPredictionJob(
                     UpProbability = prediction.Up,
                     NeutralProbability = prediction.Neutral,
                     DownProbability = prediction.Down,
+                    BaselineType = bundle.Manifest.BaselineType,
+                    BaselineUpProbability = baseline.Up,
+                    BaselineNeutralProbability = baseline.Neutral,
+                    BaselineDownProbability = baseline.Down,
+                    NeutralBandThreshold = neutralBandThreshold,
                     ReturnP10 = prediction.P10,
                     ReturnP50 = prediction.P50,
                     ReturnP90 = prediction.P90,

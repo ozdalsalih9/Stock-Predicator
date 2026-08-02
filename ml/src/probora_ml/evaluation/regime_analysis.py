@@ -10,8 +10,10 @@ import pandas as pd
 from sklearn.linear_model import LogisticRegression
 
 from probora_ml.config import FEATURE_NAMES, SEEDS
+from probora_ml.evaluation.baselines import select_direction_baseline
 from probora_ml.evaluation.metrics import expected_calibration_error, multiclass_brier
 from probora_ml.evaluation.splits import purged_walk_forward_splits
+from probora_ml.evaluation.time_series_diagnostics import probability_error_diagnostics
 from probora_ml.training.calibration import (
     blend_probabilities,
     fit_probability_blend,
@@ -56,9 +58,7 @@ def _bucket(values: pd.Series, limits: tuple[float, float], names: tuple[str, st
     )
 
 
-def _attach_regimes(
-    frame: pd.DataFrame, limits: dict[str, tuple[float, float]]
-) -> pd.DataFrame:
+def _attach_regimes(frame: pd.DataFrame, limits: dict[str, tuple[float, float]]) -> pd.DataFrame:
     output = frame.merge(_macro_frame(frame), on="snapshot_time", how="left", validate="many_to_one")
     output["volatility_regime"] = _bucket(
         output["macro_volatility"], limits["macro_volatility"], ("low", "normal", "high")
@@ -100,9 +100,7 @@ def _segment_metrics(group: pd.DataFrame) -> dict[str, float | int]:
     }
 
 
-def analyze_v2_regimes(
-    samples: pd.DataFrame, horizon_days: int, device_type: str
-) -> dict[str, object]:
+def analyze_v2_regimes(samples: pd.DataFrame, horizon_days: int, device_type: str) -> dict[str, object]:
     frame = samples[samples["horizon_days"] == horizon_days].copy()
     frame["snapshot_time"] = pd.to_datetime(frame["snapshot_time"], utc=True)
     folds = purged_walk_forward_splits(frame, embargo_days=7)
@@ -120,31 +118,29 @@ def analyze_v2_regimes(
         test_y = test["target_direction"].to_numpy(int)
 
         models = [_classifier(seed, device_type).fit(train_x, train_y) for seed in SEEDS]
-        validation_probabilities = np.mean(
-            [model.predict_proba(validation_x) for model in models], axis=0
-        )
+        validation_probabilities = np.mean([model.predict_proba(validation_x) for model in models], axis=0)
         temperature = fit_temperature(validation_y, validation_probabilities)
         prior = np.bincount(train_y.to_numpy(), minlength=3) / len(train_y)
         validation_prior = np.tile(prior, (len(validation_y), 1))
         calibrated_validation = temperature_scale(validation_probabilities, temperature)
-        blend_weight = fit_probability_blend(
-            validation_y, calibrated_validation, validation_prior
-        )
+        blend_weight = fit_probability_blend(validation_y, calibrated_validation, validation_prior)
         calibrated_test = temperature_scale(
             np.mean([model.predict_proba(test_x) for model in models], axis=0), temperature
         )
         prior_probabilities = np.tile(prior, (len(test_y), 1))
         probabilities = blend_probabilities(calibrated_test, prior_probabilities, blend_weight)
-        logistic = LogisticRegression(max_iter=2_000, class_weight="balanced").fit(
-            train_x, train_y
-        )
+        logistic = LogisticRegression(max_iter=2_000, class_weight="balanced").fit(train_x, train_y)
+        validation_logistic_probabilities = logistic.predict_proba(validation_x)
         logistic_probabilities = logistic.predict_proba(test_x)
-        baseline_probabilities = (
-            logistic_probabilities
-            if multiclass_brier(test_y, logistic_probabilities)
-            < multiclass_brier(test_y, prior_probabilities)
-            else prior_probabilities
+        selected_baseline = select_direction_baseline(
+            validation_y,
+            validation_logistic_probabilities,
+            validation_prior,
+            test_y,
+            logistic_probabilities,
+            prior_probabilities,
         )
+        baseline_probabilities = selected_baseline.probabilities
 
         enriched = _attach_regimes(test, _thresholds(train))
         enriched["fold"] = fold.name
@@ -156,6 +152,12 @@ def analyze_v2_regimes(
                 "fold": fold.name,
                 "temperature": temperature,
                 "probability_blend_weight": blend_weight,
+                "selected_baseline": selected_baseline.name,
+                "baseline_selection_reason": selected_baseline.selection_reason,
+                "validation_logistic_brier": (selected_baseline.validation_logistic_brier),
+                "validation_climatology_brier": (selected_baseline.validation_climatology_brier),
+                "validation_uniform_brier": selected_baseline.validation_uniform_brier,
+                "oracle_baseline_brier": selected_baseline.oracle_test_brier,
                 **_segment_metrics(enriched),
             }
         )
@@ -164,9 +166,7 @@ def analyze_v2_regimes(
     segment_rows: list[dict[str, object]] = []
     for dimension in ("fold", "volatility_regime", "volume_regime", "trend_strength", "market_regime"):
         for value, group in predicted.groupby(dimension, sort=True):
-            segment_rows.append(
-                {"dimension": dimension, "value": str(value), **_segment_metrics(group)}
-            )
+            segment_rows.append({"dimension": dimension, "value": str(value), **_segment_metrics(group)})
     worst = sorted(segment_rows, key=lambda row: float(row["brier_delta"]), reverse=True)
     return {
         "horizon_days": horizon_days,
@@ -175,12 +175,14 @@ def analyze_v2_regimes(
         "folds": fold_summaries,
         "segments": segment_rows,
         "worst_segments": worst[:8],
+        "temporal_diagnostics": probability_error_diagnostics(
+            predicted,
+            horizon_days=horizon_days,
+        ),
     }
 
 
-def run_and_write_regime_analysis(
-    samples: pd.DataFrame, device_type: str, output_root: Path
-) -> Path:
+def run_and_write_regime_analysis(samples: pd.DataFrame, device_type: str, output_root: Path) -> Path:
     dataset_version = str(samples["dataset_version"].iloc[0])
     safe_dataset_version = dataset_version.lower().replace("_", "-")
     report = {

@@ -1,4 +1,4 @@
-import { ArrowLeft, Clock3, DatabaseZap, ShieldCheck } from 'lucide-react'
+import { ArrowLeft, BrainCircuit, Clock3, DatabaseZap, ShieldCheck } from 'lucide-react'
 import { Link, useParams } from 'react-router-dom'
 
 import { PriceChart } from '../components/charts/PriceChart'
@@ -59,6 +59,30 @@ export function AssetDetailPage() {
             <div><h3>Bilinen sınırlamalar</h3><ul>{detail.analyses[30].limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul></div>
           </div>
         )}
+      </section>
+
+      <section className="surface llm-explanation-panel">
+        <header className="section-heading">
+          <div><p className="eyebrow">LLM yan servisi</p><h2><BrainCircuit size={18} /> Günlük model yorumu</h2></div>
+          <StatusBadge tone={detail.explanations[30] !== null || detail.explanations[90] !== null ? 'ai' : 'muted'}>
+            {detail.explanations[30] !== null || detail.explanations[90] !== null ? 'Açıklama hazır' : 'Açıklama bekleniyor'}
+          </StatusBadge>
+        </header>
+        <p className="llm-boundary">Bu katman model olasılıklarını değiştirmez; yalnızca kayıtlı faktörleri ve cutoff anında erişilebilir haberleri sadeleştirir.</p>
+        <div className="llm-explanation-grid">
+          {([30, 90] as const).map((horizon) => {
+            const explanation = detail.explanations[horizon]
+            return <article key={horizon}>
+              <div><strong>{horizon} {asset.assetClass === 'crypto' ? 'gün' : 'seans'}</strong>{explanation !== null && <small>{explanation.provider} · {explanation.model}</small>}</div>
+              {explanation === null ? <p>Bu tahmin için doğrulanmış LLM açıklaması henüz üretilmedi.</p> : <>
+                <p>{explanation.summary}</p>
+                {explanation.contradictions.length > 0 && <div><h3>Çelişkiler</h3><ul>{explanation.contradictions.map((item) => <li key={item}>{item}</li>)}</ul></div>}
+                {explanation.newsAssessment.length > 0 && <div><h3>Haber bağlamı</h3><ul>{explanation.newsAssessment.map((item) => <li key={`${item.sourceUrl}-${item.rationale}`}><a href={item.sourceUrl} target="_blank" rel="noreferrer">Kaynak</a> · {item.rationale}</li>)}</ul></div>}
+                <small>{explanation.disclaimer}</small>
+              </>}
+            </article>
+          })}
+        </div>
       </section>
 
       {detail.news.length > 0 && (

@@ -24,6 +24,7 @@ data/raw/
 data/processed/
 data/raw-futures/
 data/processed-futures/
+data/raw-equity/
 data/*.parquet
 mlruns/
 mlflow.db*

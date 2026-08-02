@@ -105,6 +105,27 @@ api.MapGet("/assets/{symbol}/analyses/latest", async Task<Results<Ok<AnalysisRes
         : TypedResults.Ok(result);
 });
 
+api.MapGet("/assets/{symbol}/explanations/latest", async Task<Results<Ok<PredictionExplanationResponse>, ProblemHttpResult>> (
+    string symbol,
+    int horizonDays,
+    bool? includeShadowPreview,
+    IProboraQueryService queries,
+    CancellationToken cancellationToken) =>
+{
+    if (horizonDays is not (30 or 90))
+    {
+        return TypedResults.Problem(statusCode: 400, title: "Unsupported horizon", detail: "Use 30 or 90 days.");
+    }
+    PredictionExplanationResponse? result = await queries.GetLatestExplanationAsync(
+        symbol,
+        horizonDays,
+        includeShadowPreview ?? false,
+        cancellationToken);
+    return result is null
+        ? TypedResults.Problem(statusCode: 404, title: "Explanation not available")
+        : TypedResults.Ok(result);
+});
+
 api.MapGet("/assets/{symbol}/news", async Task<Results<Ok<IReadOnlyList<NewsArticleResponse>>, ProblemHttpResult>> (
     string symbol,
     int? limit,
@@ -158,6 +179,15 @@ api.MapGet("/system/us-equity-shadow", async (IProboraQueryService queries, Canc
 
 api.MapGet("/system/shadow-predictions", async (IProboraQueryService queries, CancellationToken cancellationToken) =>
     Results.Ok(await queries.GetShadowPredictionDashboardAsync(cancellationToken)));
+
+api.MapGet("/system/live-scores", async (IProboraQueryService queries, CancellationToken cancellationToken) =>
+    Results.Ok(await queries.GetLiveScoringDashboardAsync(cancellationToken)));
+
+api.MapGet("/system/news-intelligence", async (IProboraQueryService queries, CancellationToken cancellationToken) =>
+    Results.Ok(await queries.GetNewsIntelligenceDashboardAsync(cancellationToken)));
+
+api.MapGet("/system/research-pipeline", async (IResearchPipelineStatusReader reader, CancellationToken cancellationToken) =>
+    Results.Ok(await reader.GetAsync(cancellationToken)));
 
 await app.RunAsync();
 

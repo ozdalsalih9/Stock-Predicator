@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "generated_at": "2026-07-20T11:23:10.802971+00:00",
+  "source_file": "data\\reference\\sp500_historical_components.csv",
+  "source_sha256": "02f37a12c11f82218fce422ecf7d95fae1074bd96e664c262a5ea42c120d5fe9",
+  "source_last_date": "2025-08-23",
+  "effective_through": "2026-07-20",
+  "wikimedia_page": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+  "wikimedia_revision_id": null,
+  "wikimedia_wikitext_sha256": "48016edc50680d1d1aa55a1bdadfc13357cf01ed31cfc057e1d3acfbdbe8bb6f",
+  "license": "CC BY-SA 4.0",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "applied_change_rows": 26,
+  "current_security_count": 503,
+  "reconciliation": {
+    "missing_from_reconstructed": [
+      "BNY",
+      "ECHO",
+      "FISV",
+      "MRSH"
+    ],
+    "extra_in_reconstructed": [
+      "BK",
+      "FI",
+      "MMC",
+      "SATS"
+    ]
+  }
+}

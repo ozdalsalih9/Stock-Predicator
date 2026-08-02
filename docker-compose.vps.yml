@@ -37,6 +37,13 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Probora: Host=postgres;Port=5432;Database=${POSTGRES_DB:-probora};Username=${POSTGRES_USER:-probora};Password=${POSTGRES_PASSWORD}
       OTEL_SDK_DISABLED: "true"
+      ResearchPipeline__StatePath: /app/research/sp500-pit/bootstrap-state.json
+      ResearchPipeline__CoveragePath: /app/research/reports/sp500-pit-coverage-v43-qualified.json
+      ResearchPipeline__FrozenUniverseSize: "734"
+      ResearchPipeline__CurrentUniverseSize: "794"
+    volumes:
+      - ./data/raw-equity/sp500-pit:/app/research/sp500-pit:ro
+      - ./artifacts/reports:/app/research/reports:ro
     networks: [private]
     logging: *default-logging
 
@@ -55,6 +62,14 @@ services:
       TwelveData__Enabled: ${TWELVE_DATA_ENABLED:-true}
       TwelveData__ApiKey: ${TWELVE_DATA_API_KEY:?TWELVE_DATA_API_KEY must be set in .env.vps}
       Gdelt__Enabled: ${GDELT_ENABLED:-false}
+      FinnhubNews__Enabled: ${FINNHUB_NEWS_ENABLED:-false}
+      FinnhubNews__ApiKey: ${FINNHUB_API_KEY:-}
+      MacroNews__Enabled: ${MACRO_NEWS_ENABLED:-true}
+      LlmExplanations__Enabled: ${LLM_EXPLANATIONS_ENABLED:-false}
+      LlmExplanations__Provider: ${LLM_PROVIDER:-openai}
+      LlmExplanations__BaseUrl: ${LLM_BASE_URL:-https://api.openai.com/v1/}
+      LlmExplanations__ApiKey: ${LLM_API_KEY:-}
+      LlmExplanations__Model: ${LLM_MODEL:-gpt-5.6-luna}
       OTEL_SDK_DISABLED: "true"
     volumes:
       - ./artifacts/models:/app/artifacts/models:ro

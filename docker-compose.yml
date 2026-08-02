@@ -79,6 +79,11 @@ services:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
       ConnectionStrings__Probora: Host=postgres;Port=5432;Database=probora;Username=probora;Password=${POSTGRES_PASSWORD:-probora_dev}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      ResearchPipeline__StatePath: /app/research/sp500-pit/bootstrap-state.json
+      ResearchPipeline__CoveragePath: /app/research/reports/sp500-pit-coverage.json
+    volumes:
+      - ./data/raw-equity/sp500-pit:/app/research/sp500-pit:ro
+      - ./artifacts/reports:/app/research/reports:ro
 
   worker:
     build:

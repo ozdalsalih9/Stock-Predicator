@@ -20,13 +20,36 @@ from probora_ml.config import (
 from probora_ml.evaluation.ablation import run_and_write_ablation
 from probora_ml.evaluation.calibration_ablation import run_and_write_equity_calibration_ablation
 from probora_ml.evaluation.conditional_prior_ablation import run_and_write_conditional_prior_ablation
+from probora_ml.evaluation.crypto_regime_blend_ablation import (
+    run_and_write_crypto_regime_blend_ablation,
+)
 from probora_ml.evaluation.direction_model_ablation import run_and_write_direction_model_ablation
+from probora_ml.evaluation.equity_cross_sectional_ablation import (
+    run_and_write_equity_cross_sectional_ablation,
+    write_equity_cross_sectional_research_dataset,
+)
+from probora_ml.evaluation.equity_sector_breadth_ablation import (
+    run_and_write_equity_sector_ablation,
+    write_equity_sector_research_dataset,
+)
+from probora_ml.evaluation.equity_sp500_breadth_ablation import (
+    run_and_write_equity_sp500_breadth_ablation,
+    write_equity_sp500_breadth_research_dataset,
+)
 from probora_ml.evaluation.fred_macro_ablation import run_and_write_fred_macro_ablation
 from probora_ml.evaluation.interval_calibration_ablation import (
     run_and_write_interval_calibration_ablation,
 )
 from probora_ml.evaluation.label_ablation import run_and_write_label_ablation
 from probora_ml.evaluation.linear_direction_ablation import run_and_write_linear_direction_ablation
+from probora_ml.evaluation.market_relative_ablation import (
+    MARKET_RELATIVE_CONFIGS,
+    run_and_write_market_relative_ablation,
+    write_market_relative_dataset,
+)
+from probora_ml.evaluation.market_relative_direction_ablation import (
+    run_and_write_market_relative_direction_ablation,
+)
 from probora_ml.evaluation.regime_analysis import run_and_write_regime_analysis
 from probora_ml.evaluation.tree_regularization_ablation import (
     run_and_write_tree_regularization_ablation,
@@ -34,6 +57,7 @@ from probora_ml.evaluation.tree_regularization_ablation import (
 from probora_ml.features.daily import aggregate_daily, create_feature_snapshots
 from probora_ml.features.derivatives import load_derivatives_daily
 from probora_ml.features.equity import add_equity_macro_features, create_equity_feature_snapshots
+from probora_ml.features.sp500_pit_breadth import load_sp500_pit_bars
 from probora_ml.hardware import resolve_training_device
 from probora_ml.ingestion.binance_archive import download_month
 from probora_ml.ingestion.binance_futures_archive import (
@@ -44,10 +68,350 @@ from probora_ml.ingestion.binance_futures_archive import (
 )
 from probora_ml.ingestion.fred_market import download_fred_market_data
 from probora_ml.ingestion.shadow_bootstrap import bootstrap_shadow_snapshots
+from probora_ml.ingestion.sp500_membership import (
+    import_sp500_membership_archive,
+    merge_membership_tail,
+)
+from probora_ml.ingestion.tiingo_equity import bootstrap_tiingo_sp500_recovery
+from probora_ml.ingestion.twelve_data_equity import (
+    audit_sp500_pit_coverage,
+    bootstrap_sp500_pit_history,
+    download_twelve_data_equity_history,
+    refresh_sp500_membership,
+    require_sp500_pit_coverage,
+)
 from probora_ml.training.labels import attach_targets
 from probora_ml.training.pipeline import train_and_evaluate
 
 app = typer.Typer(no_args_is_help=True)
+SP500_IDENTITY_QUARANTINE_OPTION = typer.Option(
+    Path("data/reference/sp500_identity_quarantine.csv"),
+    help="Explicit list of recycled or otherwise ambiguous provider tickers.",
+)
+
+
+@app.command("download-equity-sector-history")
+def download_equity_sector_history_command(
+    output: Path = Path("data/raw-equity/sector-etfs.parquet"),
+    start_date: str = typer.Option("2013-01-01"),
+    end_date: str | None = typer.Option(None),
+) -> None:
+    """Download five missing long-history sector ETFs from Twelve Data."""
+    path = download_twelve_data_equity_history(output, start_date=start_date, end_date=end_date)
+    typer.echo(f"Adjusted sector ETF history -> {path}")
+
+
+@app.command("bootstrap-sp500-pit-history")
+def bootstrap_sp500_pit_history_command(
+    membership: Path = Path("data/reference/sp500_historical_components.csv"),
+    output: Path = Path("data/raw-equity/sp500-pit"),
+    batch: int = typer.Option(..., min=1, max=10),
+    batch_count: int = typer.Option(2, min=1, max=10),
+    end_date: str | None = typer.Option(None),
+    maximum_symbols: int | None = typer.Option(None, min=1),
+    retry_failed: bool = typer.Option(
+        False,
+        help="Retry previously failed aliases/delisted symbols in this batch.",
+    ),
+    resolve_delisted: bool = typer.Option(
+        False,
+        help="On 404, look up delisted exchange metadata before retrying.",
+    ),
+) -> None:
+    """Resume one of two deterministic S&P point-in-time history batches."""
+    state = bootstrap_sp500_pit_history(
+        membership,
+        output,
+        batch_number=batch,
+        batch_count=batch_count,
+        end_date=end_date,
+        maximum_symbols=maximum_symbols,
+        retry_failed=retry_failed,
+        resolve_delisted=resolve_delisted,
+    )
+    typer.echo(f"S&P point-in-time bootstrap state -> {state}")
+
+
+@app.command("bootstrap-tiingo-sp500-recovery")
+def bootstrap_tiingo_sp500_recovery_command(
+    history: Path = Path("data/raw-equity/sp500-pit"),
+    membership: Path = Path("data/reference/sp500_historical_components.audited.csv"),
+    start_date: str = typer.Option("2012-01-01"),
+    end_date: str | None = typer.Option(None),
+    symbol: list[str] | None = None,
+    maximum_symbols: int | None = typer.Option(None, min=1),
+    retry_failed: bool = typer.Option(False),
+    request_interval_seconds: float = typer.Option(80.0, min=0),
+    hourly_limit: int = typer.Option(45, min=1, max=50),
+    daily_limit: int = typer.Option(900, min=1, max=1_000),
+    monthly_unique_limit: int = typer.Option(450, min=1, max=500),
+    monthly_byte_limit: int = typer.Option(800_000_000, min=1),
+) -> None:
+    """Recover Twelve Data failures with quota-capped Tiingo EOD history."""
+    state = bootstrap_tiingo_sp500_recovery(
+        history,
+        membership_path=membership,
+        start_date=start_date,
+        end_date=end_date,
+        explicit_symbols=tuple(symbol or ()),
+        maximum_symbols=maximum_symbols,
+        retry_failed=retry_failed,
+        minimum_request_interval_seconds=request_interval_seconds,
+        hourly_request_limit=hourly_limit,
+        daily_request_limit=daily_limit,
+        monthly_unique_limit=monthly_unique_limit,
+        monthly_byte_limit=monthly_byte_limit,
+    )
+    typer.echo(f"Tiingo S&P recovery state -> {state}")
+
+
+@app.command("import-sp500-membership-archive")
+def import_sp500_membership_archive_command(
+    archive: Path,
+    frozen_output: Path = Path("data/reference/sp500_historical_components.github.csv"),
+    current_tail: Path = Path("data/reference/sp500_historical_components.current.csv"),
+    output: Path = Path("data/reference/sp500_historical_components.audited.csv"),
+) -> None:
+    """Freeze the supplied MIT archive and append only the later audited membership tail."""
+    frozen = import_sp500_membership_archive(
+        archive,
+        frozen_output,
+        frozen_output.with_suffix(".metadata.json"),
+        frozen_output.with_suffix(".LICENSE"),
+    )
+    merged = merge_membership_tail(
+        frozen,
+        current_tail,
+        output,
+        output.with_suffix(".metadata.json"),
+    )
+    typer.echo(f"Frozen S&P membership -> {frozen}")
+    typer.echo(f"Audited S&P membership -> {merged}")
+
+
+@app.command("refresh-sp500-membership")
+def refresh_sp500_membership_command(
+    source: Path = Path("data/reference/sp500_historical_components.csv"),
+    output: Path = Path("data/reference/sp500_historical_components.current.csv"),
+    metadata: Path = Path("data/reference/sp500_historical_components.current.metadata.json"),
+) -> None:
+    """Causally extend the frozen membership snapshot using public later changes."""
+    path = refresh_sp500_membership(source, output, metadata)
+    typer.echo(f"Current S&P point-in-time membership -> {path}")
+
+
+@app.command("audit-sp500-pit-coverage")
+def audit_sp500_pit_coverage_command(
+    membership: Path = Path("data/reference/sp500_historical_components.csv"),
+    history: Path = Path("data/raw-equity/sp500-pit"),
+    trading_samples: Path = Path("data/equity_training_samples.parquet"),
+    output: Path = Path("artifacts/reports/sp500-pit-coverage.json"),
+    coverage_start_date: str | None = typer.Option(
+        None,
+        help="Audit only retained model cutoffs on or after this ISO date.",
+    ),
+    identity_quarantine: Path = SP500_IDENTITY_QUARANTINE_OPTION,
+    require_ready: bool = typer.Option(
+        False,
+        help="Exit with an error unless the V4.3 coverage and freshness gate is open.",
+    ),
+) -> None:
+    """Fail closed until every historical cutoff reaches 95% membership coverage."""
+    path = audit_sp500_pit_coverage(
+        membership,
+        history,
+        trading_samples,
+        output,
+        coverage_start_date=coverage_start_date,
+        identity_quarantine_path=identity_quarantine,
+    )
+    if require_ready:
+        require_sp500_pit_coverage(path)
+    typer.echo(f"S&P point-in-time coverage audit -> {path}")
+
+
+@app.command("build-equity-sp500-breadth-v43")
+def build_equity_sp500_breadth_v43_command(
+    dataset: Path = Path("data/equity_training_samples.parquet"),
+    sector_bars: Path = Path("data/raw-equity/sector-etfs.parquet"),
+    history: Path = Path("data/raw-equity/sp500-pit"),
+    membership: Path = Path("data/reference/sp500_historical_components.current.csv"),
+    coverage_report: Path = Path("artifacts/reports/sp500-pit-coverage.json"),
+    output: Path = Path("data/equity_sp500_breadth_v43.parquet"),
+) -> None:
+    """Build V4.3 only after the point-in-time coverage gate opens."""
+    path = write_equity_sp500_breadth_research_dataset(
+        pd.read_parquet(dataset),
+        pd.read_parquet(sector_bars),
+        load_sp500_pit_bars(history),
+        pd.read_csv(membership),
+        coverage_report,
+        output,
+        membership_path=membership,
+    )
+    typer.echo(f"Equity S&P breadth V4.3 dataset -> {path}")
+
+
+@app.command("ablate-equity-sp500-breadth")
+def ablate_equity_sp500_breadth_command(
+    dataset: Path = Path("data/equity_sp500_breadth_v43.parquet"),
+    output: Path = Path("artifacts/reports"),
+    horizon: int = typer.Option(90, help="Direction horizon: 30 or 90 sessions."),
+    device: str = typer.Option("auto", help="Training device: auto, gpu, or cpu."),
+) -> None:
+    """Test broad PIT breadth against the V4.2 sector-peer candidate."""
+    if horizon not in HORIZONS:
+        raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
+    device_type = resolve_training_device(device)
+    report_path = run_and_write_equity_sp500_breadth_ablation(
+        pd.read_parquet(dataset),
+        horizon,
+        device_type,
+        output,
+    )
+    typer.echo(f"Equity S&P breadth ablation ({device_type}) -> {report_path}")
+
+
+@app.command("build-equity-sector-v42")
+def build_equity_sector_v42_command(
+    dataset: Path = Path("data/equity_training_samples.parquet"),
+    sector_bars: Path = Path("data/raw-equity/sector-etfs.parquet"),
+    output: Path = Path("data/equity_sector_v42.parquet"),
+) -> None:
+    """Build the isolated nine-sector ETF breadth research dataset."""
+    path = write_equity_sector_research_dataset(
+        pd.read_parquet(dataset),
+        pd.read_parquet(sector_bars),
+        output,
+    )
+    typer.echo(f"Equity sector V4.2 dataset -> {path}")
+
+
+@app.command("ablate-equity-sector")
+def ablate_equity_sector_command(
+    dataset: Path = Path("data/equity_sector_v42.parquet"),
+    output: Path = Path("artifacts/reports"),
+    horizon: int = typer.Option(90, help="Direction horizon: 30 or 90 sessions."),
+    device: str = typer.Option("auto", help="Training device: auto, gpu, or cpu."),
+) -> None:
+    """Ablate nine-sector breadth and sector-relative ordinal features."""
+    if horizon not in HORIZONS:
+        raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
+    device_type = resolve_training_device(device)
+    report_path = run_and_write_equity_sector_ablation(pd.read_parquet(dataset), horizon, device_type, output)
+    typer.echo(f"Equity sector ablation ({device_type}) -> {report_path}")
+
+
+@app.command("build-equity-cross-sectional-v4")
+def build_equity_cross_sectional_v4_command(
+    dataset: Path = Path("data/equity_training_samples.parquet"),
+    output: Path = Path("data/equity_cross_sectional_v4.parquet"),
+) -> None:
+    """Build the isolated same-cutoff breadth and peer-relative research dataset."""
+    samples = pd.read_parquet(dataset)
+    path = write_equity_cross_sectional_research_dataset(samples, output)
+    typer.echo(f"Equity cross-sectional V4 dataset -> {path}")
+
+
+@app.command("ablate-equity-cross-sectional")
+def ablate_equity_cross_sectional_command(
+    dataset: Path = Path("data/equity_cross_sectional_v4.parquet"),
+    output: Path = Path("artifacts/reports"),
+    horizon: int = typer.Option(90, help="Direction horizon: 30 or 90 sessions."),
+    device: str = typer.Option("auto", help="Training device: auto, gpu, or cpu."),
+) -> None:
+    """Test causal breadth, dispersion and peer-relative ordinal feature groups."""
+    if horizon not in HORIZONS:
+        raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
+    device_type = resolve_training_device(device)
+    samples = pd.read_parquet(dataset)
+    report_path = run_and_write_equity_cross_sectional_ablation(
+        samples,
+        horizon,
+        device_type,
+        output,
+    )
+    typer.echo(f"Equity cross-sectional ablation ({device_type}) -> {report_path}")
+
+
+@app.command("build-market-relative-v4")
+def build_market_relative_v4_command(
+    dataset: Path = Path("data/training_samples_v3.parquet"),
+    output: Path = Path("data/crypto_market_relative_v4.parquet"),
+    asset_class: str = typer.Option("crypto", help="crypto or us_equity"),
+) -> None:
+    """Build an isolated BTC/SPY-relative V4 research dataset."""
+    if asset_class not in MARKET_RELATIVE_CONFIGS:
+        raise typer.BadParameter("Asset class must be crypto or us_equity.")
+    samples = pd.read_parquet(dataset)
+    path = write_market_relative_dataset(samples, MARKET_RELATIVE_CONFIGS[asset_class], output)
+    typer.echo(f"Market-relative V4 dataset -> {path}")
+
+
+@app.command("ablate-market-relative")
+def ablate_market_relative_command(
+    dataset: Path = Path("data/crypto_market_relative_v4.parquet"),
+    output: Path = Path("artifacts/reports"),
+    asset_class: str = typer.Option("crypto", help="crypto or us_equity"),
+    horizon: int = typer.Option(90, help="Direction horizon: 30 or 90."),
+    device: str = typer.Option("auto", help="Training device: auto, gpu, or cpu."),
+) -> None:
+    """Measure whether excess returns contain stable direction information."""
+    if asset_class not in MARKET_RELATIVE_CONFIGS:
+        raise typer.BadParameter("Asset class must be crypto or us_equity.")
+    if horizon not in HORIZONS:
+        raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
+    device_type = resolve_training_device(device)
+    samples = pd.read_parquet(dataset)
+    report_path = run_and_write_market_relative_ablation(
+        samples,
+        MARKET_RELATIVE_CONFIGS[asset_class],
+        horizon,
+        device_type,
+        output,
+    )
+    typer.echo(f"Market-relative ablation ({device_type}) -> {report_path}")
+
+
+@app.command("ablate-market-relative-direction")
+def ablate_market_relative_direction_command(
+    dataset: Path = Path("data/equity_market_relative_v4.parquet"),
+    output: Path = Path("artifacts/reports"),
+    asset_class: str = typer.Option("us_equity", help="crypto or us_equity"),
+    horizon: int = typer.Option(90, help="Direction horizon: 30 or 90."),
+    device: str = typer.Option("auto", help="Training device: auto, gpu, or cpu."),
+) -> None:
+    """Compare nominal, ordinal and calibrated market-relative V4 models."""
+    if asset_class not in MARKET_RELATIVE_CONFIGS:
+        raise typer.BadParameter("Asset class must be crypto or us_equity.")
+    if horizon not in HORIZONS:
+        raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
+    device_type = resolve_training_device(device)
+    samples = pd.read_parquet(dataset)
+    report_path = run_and_write_market_relative_direction_ablation(
+        samples,
+        MARKET_RELATIVE_CONFIGS[asset_class],
+        horizon,
+        device_type,
+        output,
+    )
+    typer.echo(f"Market-relative direction ablation ({device_type}) -> {report_path}")
+
+
+@app.command("ablate-crypto-regime-blend")
+def ablate_crypto_regime_blend_command(
+    dataset: Path = Path("data/training_samples_v3.parquet"),
+    output: Path = Path("artifacts/reports"),
+    horizon: int = typer.Option(90, help="Direction horizon: 30 or 90 calendar days."),
+    device: str = typer.Option("auto", help="Training device: auto, gpu, or cpu."),
+) -> None:
+    """Test a leakage-safe regime gate between the crypto model and its prior."""
+    if horizon not in HORIZONS:
+        raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
+    device_type = resolve_training_device(device)
+    samples = pd.read_parquet(dataset)
+    report_path = run_and_write_crypto_regime_blend_ablation(samples, horizon, device_type, output)
+    typer.echo(f"Crypto regime blend ablation ({device_type}) -> {report_path}")
 
 
 @app.command("ablate-interval-calibration")
@@ -62,9 +426,7 @@ def ablate_interval_calibration_command(
         raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
     device_type = resolve_training_device(device)
     samples = pd.read_parquet(dataset)
-    report_path = run_and_write_interval_calibration_ablation(
-        samples, horizon, device_type, output
-    )
+    report_path = run_and_write_interval_calibration_ablation(samples, horizon, device_type, output)
     typer.echo(f"Interval calibration ablation ({device_type}) -> {report_path}")
 
 
@@ -91,9 +453,7 @@ def ablate_fred_macro_command(
         raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
     device_type = resolve_training_device(device)
     samples = pd.read_parquet(dataset)
-    report_path = run_and_write_fred_macro_ablation(
-        samples, macro_root, horizon, device_type, output
-    )
+    report_path = run_and_write_fred_macro_ablation(samples, macro_root, horizon, device_type, output)
     typer.echo(f"FRED macro ablation ({device_type}) -> {report_path}")
 
 
@@ -109,9 +469,7 @@ def ablate_tree_regularization_command(
         raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
     device_type = resolve_training_device(device)
     samples = pd.read_parquet(dataset)
-    report_path = run_and_write_tree_regularization_ablation(
-        samples, horizon, device_type, output
-    )
+    report_path = run_and_write_tree_regularization_ablation(samples, horizon, device_type, output)
     typer.echo(f"Tree regularization ablation ({device_type}) -> {report_path}")
 
 
@@ -127,9 +485,7 @@ def ablate_labels_command(
         raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
     device_type = resolve_training_device(device)
     samples = pd.read_parquet(dataset)
-    report_path = run_and_write_label_ablation(
-        samples, horizon, device_type, output
-    )
+    report_path = run_and_write_label_ablation(samples, horizon, device_type, output)
     typer.echo(f"Label ablation ({device_type}) -> {report_path}")
 
 
@@ -173,9 +529,7 @@ def ablate_direction_models_command(
         raise typer.BadParameter(f"Horizon must be one of: {', '.join(map(str, HORIZONS))}")
     device_type = resolve_training_device(device)
     samples = pd.read_parquet(dataset)
-    report_path = run_and_write_direction_model_ablation(
-        samples, horizon, device_type, output
-    )
+    report_path = run_and_write_direction_model_ablation(samples, horizon, device_type, output)
     typer.echo(f"Direction model ablation ({device_type}) -> {report_path}")
 
 

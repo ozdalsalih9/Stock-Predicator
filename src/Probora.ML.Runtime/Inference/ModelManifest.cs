@@ -25,7 +25,12 @@ public sealed record ModelManifest(
     string AssetClass = "crypto",
     bool DirectionEligible = true,
     bool ScenarioEligible = true,
-    IReadOnlyDictionary<string, double>? FeatureReference = null);
+    IReadOnlyDictionary<string, double>? FeatureReference = null,
+    string BaselineType = "climatology",
+    IReadOnlyList<double>? BaselineClassPrior = null,
+    IReadOnlyList<double>? BaselineCoefficients = null,
+    IReadOnlyList<double>? BaselineIntercept = null,
+    string? RuntimeParityContractVersion = null);
 
 public sealed record RuntimePrediction(
     double Up,
@@ -35,3 +40,23 @@ public sealed record RuntimePrediction(
     double P50,
     double P90,
     double RiskScore);
+
+public sealed record RuntimeDirectionPrediction(double Up, double Neutral, double Down);
+
+public sealed record RuntimeParityFixture(
+    string ContractVersion,
+    string FeatureSetVersion,
+    IReadOnlyDictionary<string, double> Features,
+    RuntimeParityExpected Expected);
+
+public sealed record RuntimeParityExpected(
+    double Up,
+    double Neutral,
+    double Down,
+    double P10,
+    double P50,
+    double P90,
+    double RiskScore,
+    double BaselineUp,
+    double BaselineNeutral,
+    double BaselineDown);

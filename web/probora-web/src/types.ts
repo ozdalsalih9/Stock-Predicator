@@ -55,6 +55,24 @@ export interface Analysis {
   limitations: string[]
 }
 
+export interface PredictionExplanation {
+  predictionId: number
+  symbol: string
+  analysisTime: string
+  horizonDays: 30 | 90
+  provider: string
+  model: string
+  promptVersion: string
+  summary: string
+  supportingFactors: string[]
+  riskFactors: string[]
+  contradictions: string[]
+  uncertaintyNotes: string[]
+  newsAssessment: Array<{ sourceUrl: string; impact: 'supporting' | 'opposing' | 'neutral'; rationale: string }>
+  disclaimer: string
+  completedAt: string | null
+}
+
 export interface FreshnessItem {
   dataset: string
   symbol: string | null
@@ -172,6 +190,69 @@ export interface ShadowPredictionDashboard {
   models: ShadowPredictionModel[]
 }
 
+export interface LiveModelScore {
+  version: string
+  assetClass: 'crypto' | 'us_equity'
+  horizonDays: number
+  outcomeCount: number
+  evaluationDays: number
+  downCount: number
+  neutralCount: number
+  upCount: number
+  brierScore: number | null
+  baselineBrierScore: number | null
+  brierSkillScore: number | null
+  expectedCalibrationError: number | null
+  intervalCoverage: number | null
+  quantilePinballLoss: number | null
+  riskMeanAbsoluteError: number | null
+  promotionState: 'collecting_evidence' | 'eligible_for_manual_review'
+  promotionBlockers: string[]
+}
+
+export interface LiveScoringDashboard {
+  checkedAt: string
+  state: 'no_candidate' | 'waiting_for_maturity' | 'collecting_evidence' | 'manual_review_available'
+  totalOutcomes: number
+  requiredOutcomesPerModel: number
+  requiredEvaluationDays: number
+  models: LiveModelScore[]
+}
+
+export interface ResearchPipelineFailure {
+  symbol: string
+  errorType: string
+}
+
+export interface ResearchPipelineDashboard {
+  checkedAt: string
+  lastUpdatedAt: string | null
+  coverageCheckedAt: string | null
+  state: 'no_data' | 'collecting' | 'waiting_next_batch' | 'audit_required' | 'ready'
+  frozenUniverseSize: number
+  currentUniverseSize: number
+  batchNumber: number
+  batchCount: number
+  batchSize: number
+  batchProcessedSymbols: number
+  processedSymbols: number
+  successfulSymbols: number
+  failedSymbols: number
+  downloadedBars: number
+  overallProgressPercent: number
+  batchProgressPercent: number
+  meanDailyCoverage: number | null
+  minimumDailyCoverage: number | null
+  latestDailyCoverage: number | null
+  requiredDailyCoverage: number
+  coverageReady: boolean
+  membershipLastSnapshotDate: string | null
+  membershipFreshnessDays: number | null
+  membershipFresh: boolean
+  nextStep: string
+  recentFailures: ResearchPipelineFailure[]
+}
+
 export interface ModelCard {
   version: string
   horizonDays: number
@@ -192,7 +273,9 @@ export interface NewsArticle {
   sourceName: string
   sourceUrl: string
   publishedAt: string
+  availableAt: string
   retrievedAt: string
+  provider: string
   language: string
   relevanceScore: number
   sentimentScore: number | null
