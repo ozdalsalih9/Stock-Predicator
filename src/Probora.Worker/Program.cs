@@ -20,6 +20,9 @@ builder.Services.Configure<BinanceFuturesOptions>(builder.Configuration.GetSecti
 builder.Services.Configure<TwelveDataOptions>(builder.Configuration.GetSection(TwelveDataOptions.SectionName));
 builder.Services.Configure<ModelOptions>(builder.Configuration.GetSection(ModelOptions.SectionName));
 builder.Services.Configure<GdeltOptions>(builder.Configuration.GetSection(GdeltOptions.SectionName));
+builder.Services.Configure<MacroNewsOptions>(builder.Configuration.GetSection(MacroNewsOptions.SectionName));
+builder.Services.Configure<LlmExplanationOptions>(builder.Configuration.GetSection(LlmExplanationOptions.SectionName));
+builder.Services.Configure<FinnhubNewsOptions>(builder.Configuration.GetSection(FinnhubNewsOptions.SectionName));
 builder.Services.AddHttpClient<BinanceRestClient>((provider, client) =>
 {
     BinanceOptions options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<BinanceOptions>>().Value;
@@ -47,6 +50,29 @@ builder.Services.AddHttpClient<GdeltNewsJob>((provider, client) =>
     client.BaseAddress = new Uri(options.BaseUrl);
     client.Timeout = TimeSpan.FromSeconds(30);
     client.DefaultRequestHeaders.UserAgent.ParseAdd("Probora/1.0 news-shadow-research");
+});
+builder.Services.AddHttpClient<MacroRssNewsJob>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Probora/4.0 macro-news-research");
+});
+builder.Services.AddHttpClient<FinnhubNewsJob>((provider, client) =>
+{
+    FinnhubNewsOptions options = provider
+        .GetRequiredService<Microsoft.Extensions.Options.IOptions<FinnhubNewsOptions>>().Value;
+    string baseUrl = options.BaseUrl.EndsWith('/') ? options.BaseUrl : options.BaseUrl + "/";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Probora/4.0 finnhub-news-research");
+});
+builder.Services.AddHttpClient<ILlmExplanationClient, OpenAiCompatibleExplanationClient>((provider, client) =>
+{
+    LlmExplanationOptions options = provider
+        .GetRequiredService<Microsoft.Extensions.Options.IOptions<LlmExplanationOptions>>().Value;
+    string baseUrl = options.BaseUrl.EndsWith('/') ? options.BaseUrl : options.BaseUrl + "/";
+    client.BaseAddress = new Uri(baseUrl);
+    client.Timeout = TimeSpan.FromSeconds(90);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd("Probora/4.0 prediction-explanation-sidecar");
 });
 builder.Services.AddQuartz(quartz =>
 {
@@ -110,7 +136,28 @@ builder.Services.AddQuartz(quartz =>
         .ForJob(newsJob)
         .WithIdentity("gdelt-news-shadow-trigger")
         .StartNow()
-        .WithSimpleSchedule(schedule => schedule.WithIntervalInMinutes(30).RepeatForever()));
+        .WithSimpleSchedule(schedule => schedule.WithIntervalInHours(2).RepeatForever()));
+    JobKey finnhubNewsJob = new("finnhub-news-shadow");
+    quartz.AddJob<FinnhubNewsJob>(options => options.WithIdentity(finnhubNewsJob));
+    quartz.AddTrigger(options => options
+        .ForJob(finnhubNewsJob)
+        .WithIdentity("finnhub-news-shadow-trigger")
+        .StartNow()
+        .WithSimpleSchedule(schedule => schedule.WithIntervalInHours(1).RepeatForever()));
+    JobKey macroNewsJob = new("macro-rss-news-shadow");
+    quartz.AddJob<MacroRssNewsJob>(options => options.WithIdentity(macroNewsJob));
+    quartz.AddTrigger(options => options
+        .ForJob(macroNewsJob)
+        .WithIdentity("macro-rss-news-shadow-trigger")
+        .StartNow()
+        .WithSimpleSchedule(schedule => schedule.WithIntervalInHours(1).RepeatForever()));
+    JobKey explanationJob = new("prediction-explanation-sidecar");
+    quartz.AddJob<PredictionExplanationJob>(options => options.WithIdentity(explanationJob));
+    quartz.AddTrigger(options => options
+        .ForJob(explanationJob)
+        .WithIdentity("prediction-explanation-sidecar-trigger")
+        .StartNow()
+        .WithSimpleSchedule(schedule => schedule.WithIntervalInMinutes(15).RepeatForever()));
     JobKey usEquityJob = new("us-equity-shadow-collector");
     quartz.AddJob<UsEquityShadowCollectorJob>(options => options.WithIdentity(usEquityJob));
     quartz.AddTrigger(options => options

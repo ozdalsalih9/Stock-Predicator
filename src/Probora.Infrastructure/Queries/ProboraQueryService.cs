@@ -119,7 +119,7 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
             .FirstOrDefaultAsync(cancellationToken);
         DateTimeOffset? latestNews = await dbContext.NewsArticles.AsNoTracking()
             .Where(x => x.AssetId == result.asset.Id)
-            .MaxAsync(x => (DateTimeOffset?)x.PublishedAt, cancellationToken);
+            .MaxAsync(x => (DateTimeOffset?)x.AvailableAt, cancellationToken);
 
         string freshnessState = FreshnessState(
             latestPrice?.CloseTime,
@@ -172,6 +172,58 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
                 "Geçmiş performans gelecekteki sonuçları garanti etmez.",
                 "Haber sinyali v1 modelinde aktif değildir."
             ]);
+    }
+
+    public async Task<PredictionExplanationResponse?> GetLatestExplanationAsync(
+        string symbol,
+        int horizonDays,
+        bool includeShadowPreview,
+        CancellationToken cancellationToken)
+    {
+        var row = await (
+            from explanation in dbContext.PredictionExplanations.AsNoTracking()
+            join prediction in dbContext.Predictions.AsNoTracking() on explanation.PredictionId equals prediction.Id
+            join asset in dbContext.Assets.AsNoTracking() on prediction.AssetId equals asset.Id
+            join model in dbContext.ModelVersions.AsNoTracking() on prediction.ModelVersionId equals model.Id
+            where asset.Symbol == symbol.ToUpper() && prediction.HorizonDays == horizonDays &&
+                  explanation.Status == "succeeded" &&
+                  ((model.IsProduction && !prediction.IsShadow) ||
+                   (includeShadowPreview && model.IsShadowCandidate && prediction.IsShadow))
+            orderby model.IsProduction descending, prediction.AnalysisTime descending, explanation.CompletedAt descending
+            select new { explanation, prediction, asset })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (row is null)
+        {
+            return null;
+        }
+
+        ExplanationPayload? payload = JsonSerializer.Deserialize<ExplanationPayload>(
+            row.explanation.OutputJson,
+            JsonOptions);
+        if (payload is null || string.IsNullOrWhiteSpace(payload.Summary))
+        {
+            return null;
+        }
+
+        return new PredictionExplanationResponse(
+            row.prediction.Id,
+            row.asset.Symbol,
+            row.prediction.AnalysisTime,
+            row.prediction.HorizonDays,
+            row.explanation.Provider,
+            row.explanation.Model,
+            row.explanation.PromptVersion,
+            payload.Summary,
+            payload.SupportingFactors,
+            payload.RiskFactors,
+            payload.Contradictions,
+            payload.UncertaintyNotes,
+            payload.NewsAssessment.Select(item => new PredictionNewsAssessmentResponse(
+                item.SourceUrl,
+                item.Impact,
+                item.Rationale)).ToArray(),
+            payload.Disclaimer,
+            row.explanation.CompletedAt);
     }
 
     public async Task<PerformanceResponse?> GetPerformanceAsync(
@@ -647,6 +699,64 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
             models);
     }
 
+    public async Task<NewsIntelligenceDashboardResponse> GetNewsIntelligenceDashboardAsync(
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset checkedAt = timeProvider.GetUtcNow();
+        DateTimeOffset since = checkedAt.AddHours(-24);
+        var providerRows = await dbContext.NewsArticles.AsNoTracking()
+            .GroupBy(article => article.Provider)
+            .Select(group => new
+            {
+                Provider = group.Key,
+                Articles24Hours = group.Count(article => article.AvailableAt >= since),
+                LatestAvailableAt = (DateTimeOffset?)group.Max(article => article.AvailableAt),
+                LastSeenAt = (DateTimeOffset?)group.Max(article => article.RetrievedAt)
+            })
+            .OrderBy(row => row.Provider)
+            .ToListAsync(cancellationToken);
+
+        List<NewsProviderStatusResponse> providers = providerRows.Select(row =>
+            new NewsProviderStatusResponse(
+                row.Provider,
+                row.Articles24Hours,
+                row.LatestAvailableAt,
+                row.LastSeenAt,
+                row.LastSeenAt switch
+                {
+                    null => "missing",
+                    { } seen when checkedAt - seen <= TimeSpan.FromHours(4) => "healthy",
+                    _ => "stale"
+                })).ToList();
+        int successfulExplanations = await dbContext.PredictionExplanations.AsNoTracking()
+            .CountAsync(explanation => explanation.Status == "succeeded" && explanation.CompletedAt >= since,
+                cancellationToken);
+        int failedExplanations = await dbContext.PredictionExplanations.AsNoTracking()
+            .CountAsync(explanation => explanation.Status == "failed" && explanation.CompletedAt >= since,
+                cancellationToken);
+        DateTimeOffset? latestExplanationAt = await dbContext.PredictionExplanations.AsNoTracking()
+            .Where(explanation => explanation.Status == "succeeded")
+            .MaxAsync(explanation => explanation.CompletedAt, cancellationToken);
+        string state = providers.Count switch
+        {
+            0 => "no_data",
+            _ when providers.All(provider => provider.State == "healthy") => "healthy",
+            _ when providers.Any(provider => provider.State == "healthy") => "degraded",
+            _ => "stale"
+        };
+
+        return new NewsIntelligenceDashboardResponse(
+            checkedAt,
+            state,
+            providers.Sum(provider => provider.Articles24Hours),
+            providers.Select(provider => provider.LatestAvailableAt).Max(),
+            providers.Select(provider => provider.LastSeenAt).Max(),
+            successfulExplanations,
+            failedExplanations,
+            latestExplanationAt,
+            providers);
+    }
+
     private static double ExpectedCalibrationError(
         IEnumerable<(double[] Probabilities, int RealizedDirection)> values,
         int bins = 10)
@@ -720,7 +830,9 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
                 x.SourceName,
                 x.SourceUrl,
                 x.PublishedAt,
+                x.AvailableAt,
                 x.RetrievedAt,
+                x.Provider,
                 x.Language,
                 x.RelevanceScore,
                 x.SentimentScore,
@@ -795,5 +907,23 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
         }
         int index = Math.Clamp((int)Math.Ceiling(orderedValues.Count * 0.95) - 1, 0, orderedValues.Count - 1);
         return orderedValues[index];
+    }
+
+    private sealed class ExplanationPayload
+    {
+        public string Summary { get; init; } = string.Empty;
+        public IReadOnlyList<string> SupportingFactors { get; init; } = [];
+        public IReadOnlyList<string> RiskFactors { get; init; } = [];
+        public IReadOnlyList<string> Contradictions { get; init; } = [];
+        public IReadOnlyList<string> UncertaintyNotes { get; init; } = [];
+        public IReadOnlyList<NewsAssessmentPayload> NewsAssessment { get; init; } = [];
+        public string Disclaimer { get; init; } = string.Empty;
+    }
+
+    private sealed class NewsAssessmentPayload
+    {
+        public string SourceUrl { get; init; } = string.Empty;
+        public string Impact { get; init; } = "neutral";
+        public string Rationale { get; init; } = string.Empty;
     }
 }

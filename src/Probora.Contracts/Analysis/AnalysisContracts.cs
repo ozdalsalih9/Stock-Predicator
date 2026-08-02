@@ -55,3 +55,25 @@ public sealed record PerformanceResponse(
     double IntervalCoverage,
     int SampleCount,
     DateTimeOffset EvaluatedThrough);
+
+public sealed record PredictionNewsAssessmentResponse(
+    string SourceUrl,
+    string Impact,
+    string Rationale);
+
+public sealed record PredictionExplanationResponse(
+    long PredictionId,
+    string Symbol,
+    DateTimeOffset AnalysisTime,
+    int HorizonDays,
+    string Provider,
+    string Model,
+    string PromptVersion,
+    string Summary,
+    IReadOnlyList<string> SupportingFactors,
+    IReadOnlyList<string> RiskFactors,
+    IReadOnlyList<string> Contradictions,
+    IReadOnlyList<string> UncertaintyNotes,
+    IReadOnlyList<PredictionNewsAssessmentResponse> NewsAssessment,
+    string Disclaimer,
+    DateTimeOffset? CompletedAt);

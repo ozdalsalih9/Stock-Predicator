@@ -65,6 +65,22 @@ public sealed class PredictionOutcome
     public DateTimeOffset ResolvedAt { get; set; }
 }
 
+public sealed class PredictionExplanation
+{
+    public long Id { get; set; }
+    public long PredictionId { get; set; }
+    public string Provider { get; set; } = string.Empty;
+    public string Model { get; set; } = string.Empty;
+    public string PromptVersion { get; set; } = string.Empty;
+    public string InputJson { get; set; } = "{}";
+    public string InputSha256 { get; set; } = string.Empty;
+    public string OutputJson { get; set; } = "{}";
+    public string Status { get; set; } = "pending";
+    public string? FailureReason { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
+}
+
 public sealed class ModelPromotionDecision
 {
     public long Id { get; set; }

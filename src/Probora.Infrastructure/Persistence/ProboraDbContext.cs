@@ -15,6 +15,7 @@ public sealed class ProboraDbContext(DbContextOptions<ProboraDbContext> options)
     public DbSet<ModelVersion> ModelVersions => Set<ModelVersion>();
     public DbSet<PredictionRecord> Predictions => Set<PredictionRecord>();
     public DbSet<PredictionOutcome> PredictionOutcomes => Set<PredictionOutcome>();
+    public DbSet<PredictionExplanation> PredictionExplanations => Set<PredictionExplanation>();
     public DbSet<ModelPromotionDecision> ModelPromotionDecisions => Set<ModelPromotionDecision>();
     public DbSet<IngestionRun> IngestionRuns => Set<IngestionRun>();
     public DbSet<DataQualityIssue> DataQualityIssues => Set<DataQualityIssue>();
@@ -114,6 +115,23 @@ public sealed class ProboraDbContext(DbContextOptions<ProboraDbContext> options)
             entity.HasIndex(x => new { x.TargetTime, x.ResolvedAt });
         });
 
+        modelBuilder.Entity<PredictionExplanation>(entity =>
+        {
+            entity.ToTable("prediction_explanations");
+            entity.HasKey(x => x.Id);
+            entity.Property(x => x.Provider).HasMaxLength(32);
+            entity.Property(x => x.Model).HasMaxLength(128);
+            entity.Property(x => x.PromptVersion).HasMaxLength(64);
+            entity.Property(x => x.InputJson).HasColumnType("jsonb");
+            entity.Property(x => x.InputSha256).HasMaxLength(64);
+            entity.Property(x => x.OutputJson).HasColumnType("jsonb");
+            entity.Property(x => x.Status).HasMaxLength(16);
+            entity.HasOne<PredictionRecord>().WithMany().HasForeignKey(x => x.PredictionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasIndex(x => new { x.PredictionId, x.Provider, x.Model, x.PromptVersion }).IsUnique();
+            entity.HasIndex(x => new { x.Status, x.CreatedAt });
+        });
+
         modelBuilder.Entity<ModelPromotionDecision>(entity =>
         {
             entity.ToTable("model_promotion_decisions");
@@ -149,11 +167,13 @@ public sealed class ProboraDbContext(DbContextOptions<ProboraDbContext> options)
             entity.Property(x => x.SourceName).HasMaxLength(255);
             entity.Property(x => x.SourceUrl).HasMaxLength(2_048);
             entity.Property(x => x.Language).HasMaxLength(16);
+            entity.Property(x => x.Provider).HasMaxLength(64);
             entity.Property(x => x.ContentHash).HasMaxLength(64);
             entity.Property(x => x.EventType).HasMaxLength(64);
             entity.HasOne<Asset>().WithMany().HasForeignKey(x => x.AssetId);
             entity.HasIndex(x => new { x.AssetId, x.ContentHash }).IsUnique();
             entity.HasIndex(x => new { x.AssetId, x.PublishedAt });
+            entity.HasIndex(x => new { x.Provider, x.AvailableAt });
         });
     }
 }

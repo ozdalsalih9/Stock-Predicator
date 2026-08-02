@@ -134,6 +134,24 @@ public sealed record LiveScoringDashboardResponse(
     int RequiredEvaluationDays,
     IReadOnlyList<LiveModelScoreResponse> Models);
 
+public sealed record NewsProviderStatusResponse(
+    string Provider,
+    int Articles24Hours,
+    DateTimeOffset? LatestAvailableAt,
+    DateTimeOffset? LastSeenAt,
+    string State);
+
+public sealed record NewsIntelligenceDashboardResponse(
+    DateTimeOffset CheckedAt,
+    string State,
+    int Articles24Hours,
+    DateTimeOffset? LatestAvailableAt,
+    DateTimeOffset? LastSeenAt,
+    int SuccessfulExplanations24Hours,
+    int FailedExplanations24Hours,
+    DateTimeOffset? LatestExplanationAt,
+    IReadOnlyList<NewsProviderStatusResponse> Providers);
+
 public sealed record ResearchPipelineFailureResponse(
     string Symbol,
     string ErrorType);

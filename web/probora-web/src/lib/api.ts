@@ -1,4 +1,4 @@
-import type { Analysis, Asset, LiveScoringDashboard, ModelCard, NewsArticle, PriceBar, ResearchPipelineDashboard, ShadowCollectorDashboard, ShadowPredictionDashboard, SystemFreshness, UsEquityShadowDashboard } from '../types'
+import type { Analysis, Asset, LiveScoringDashboard, ModelCard, NewsArticle, PredictionExplanation, PriceBar, ResearchPipelineDashboard, ShadowCollectorDashboard, ShadowPredictionDashboard, SystemFreshness, UsEquityShadowDashboard } from '../types'
 
 export class ApiError extends Error {
   constructor(
@@ -31,6 +31,11 @@ export const api = {
   analysis: (symbol: string, horizon: 30 | 90, signal?: AbortSignal) =>
     get<Analysis>(
       `/api/v1/assets/${encodeURIComponent(symbol)}/analyses/latest?horizonDays=${horizon}&includeShadowPreview=true`,
+      signal,
+    ),
+  explanation: (symbol: string, horizon: 30 | 90, signal?: AbortSignal) =>
+    get<PredictionExplanation>(
+      `/api/v1/assets/${encodeURIComponent(symbol)}/explanations/latest?horizonDays=${horizon}&includeShadowPreview=true`,
       signal,
     ),
   news: (symbol: string, signal?: AbortSignal) =>

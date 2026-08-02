@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 
 import { api, ApiError } from '../lib/api'
-import type { Analysis, Asset, NewsArticle, PriceBar } from '../types'
+import type { Analysis, Asset, NewsArticle, PredictionExplanation, PriceBar } from '../types'
 
 export function useAssetDetail(asset: Asset | undefined) {
   const [bars, setBars] = useState<PriceBar[]>([])
   const [analyses, setAnalyses] = useState<Record<30 | 90, Analysis | null>>({ 30: null, 90: null })
   const [news, setNews] = useState<NewsArticle[]>([])
+  const [explanations, setExplanations] = useState<Record<30 | 90, PredictionExplanation | null>>({ 30: null, 90: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -24,7 +25,9 @@ export function useAssetDetail(asset: Asset | undefined) {
       api.analysis(asset.symbol, 30, controller.signal),
       api.analysis(asset.symbol, 90, controller.signal),
       api.news(asset.symbol, controller.signal),
-    ]).then(([barsResult, analysis30, analysis90, newsResult]) => {
+      api.explanation(asset.symbol, 30, controller.signal),
+      api.explanation(asset.symbol, 90, controller.signal),
+    ]).then(([barsResult, analysis30, analysis90, newsResult, explanation30, explanation90]) => {
       if (barsResult.status === 'fulfilled') setBars(barsResult.value)
       else if (!controller.signal.aborted) setError('Fiyat serisine ulaşılamıyor. Son doğrulanmış veri gösterilemiyor.')
       setAnalyses({
@@ -32,6 +35,10 @@ export function useAssetDetail(asset: Asset | undefined) {
         90: analysis90.status === 'fulfilled' ? analysis90.value : null,
       })
       if (newsResult.status === 'fulfilled') setNews(newsResult.value)
+      setExplanations({
+        30: explanation30.status === 'fulfilled' ? explanation30.value : null,
+        90: explanation90.status === 'fulfilled' ? explanation90.value : null,
+      })
       const unexpectedAnalysisError = [analysis30, analysis90].find(
         (result) => result.status === 'rejected' && !(result.reason instanceof ApiError && result.reason.status === 404),
       )
@@ -44,5 +51,5 @@ export function useAssetDetail(asset: Asset | undefined) {
     return () => controller.abort()
   }, [asset])
 
-  return { bars, analyses, news, loading, error }
+  return { bars, analyses, explanations, news, loading, error }
 }

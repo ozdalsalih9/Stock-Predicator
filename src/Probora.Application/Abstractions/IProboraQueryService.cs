@@ -20,6 +20,11 @@ public interface IProboraQueryService
         int horizonDays,
         bool includeShadowPreview,
         CancellationToken cancellationToken);
+    Task<PredictionExplanationResponse?> GetLatestExplanationAsync(
+        string symbol,
+        int horizonDays,
+        bool includeShadowPreview,
+        CancellationToken cancellationToken);
     Task<ModelCardResponse?> GetModelCardAsync(string version, CancellationToken cancellationToken);
     Task<PerformanceResponse?> GetPerformanceAsync(string? symbol, int horizonDays, CancellationToken cancellationToken);
     Task<SystemFreshnessResponse> GetFreshnessAsync(CancellationToken cancellationToken);
@@ -27,6 +32,7 @@ public interface IProboraQueryService
     Task<UsEquityShadowDashboardResponse> GetUsEquityShadowDashboardAsync(CancellationToken cancellationToken);
     Task<ShadowPredictionDashboardResponse> GetShadowPredictionDashboardAsync(CancellationToken cancellationToken);
     Task<LiveScoringDashboardResponse> GetLiveScoringDashboardAsync(CancellationToken cancellationToken);
+    Task<NewsIntelligenceDashboardResponse> GetNewsIntelligenceDashboardAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<MarketPriceUpdate>> GetLatestPricesAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<NewsArticleResponse>?> GetNewsAsync(string symbol, int limit, CancellationToken cancellationToken);
 }

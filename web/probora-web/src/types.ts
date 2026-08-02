@@ -55,6 +55,24 @@ export interface Analysis {
   limitations: string[]
 }
 
+export interface PredictionExplanation {
+  predictionId: number
+  symbol: string
+  analysisTime: string
+  horizonDays: 30 | 90
+  provider: string
+  model: string
+  promptVersion: string
+  summary: string
+  supportingFactors: string[]
+  riskFactors: string[]
+  contradictions: string[]
+  uncertaintyNotes: string[]
+  newsAssessment: Array<{ sourceUrl: string; impact: 'supporting' | 'opposing' | 'neutral'; rationale: string }>
+  disclaimer: string
+  completedAt: string | null
+}
+
 export interface FreshnessItem {
   dataset: string
   symbol: string | null
@@ -255,7 +273,9 @@ export interface NewsArticle {
   sourceName: string
   sourceUrl: string
   publishedAt: string
+  availableAt: string
   retrievedAt: string
+  provider: string
   language: string
   relevanceScore: number
   sentimentScore: number | null
