@@ -37,6 +37,13 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Probora: Host=postgres;Port=5432;Database=${POSTGRES_DB:-probora};Username=${POSTGRES_USER:-probora};Password=${POSTGRES_PASSWORD}
       OTEL_SDK_DISABLED: "true"
+      ResearchPipeline__StatePath: /app/research/sp500-pit/bootstrap-state.json
+      ResearchPipeline__CoveragePath: /app/research/reports/sp500-pit-coverage-v43-qualified.json
+      ResearchPipeline__FrozenUniverseSize: "734"
+      ResearchPipeline__CurrentUniverseSize: "794"
+    volumes:
+      - ./data/raw-equity/sp500-pit:/app/research/sp500-pit:ro
+      - ./artifacts/reports:/app/research/reports:ro
     networks: [private]
     logging: *default-logging
 
