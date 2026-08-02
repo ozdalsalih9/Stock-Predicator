@@ -5,7 +5,9 @@
 - Tahmin anı: UTC 00:00 günlük kapanış.
 - Ufuklar: 30 ve 90 takvim günü.
 - Yön sınıfları: yükseliş, yatay ve düşüş.
-- Etiket eşiği: `0.5 × yıllıklaştırılmış 30 günlük volatilite × sqrt(ufuk/365)`.
+- Etiket eşiği: kısa/uzun dönem yıllıklandırılmış volatilitenin %65/%35 varyans karışımıyla
+  dinamik hesaplanır; volatilite %20-%150 arasında, 30 günlük eşik %2,5-%18 arasında kırpılır ve
+  ufka `sqrt(ufuk/30)` ile ölçeklenir. ABD hisselerinde 252 seans, kriptoda 365 gün kullanılır.
 - Tek fiyat tahmini yerine P10, P50 ve P90 log getiri quantile'ları yayınlanır.
 
 ## Zaman güvenliği
@@ -26,10 +28,21 @@ yayınlamak yerine job ertelenir.
 - P10–P90 kapsamı %75–85.
 - Gelecek volatilite risk skoru MAE'si, mevcut 30 günlük volatilite baseline'ından en az %5 iyi
   ve üç fold'un en az ikisinde baseline üstü.
-- ONNX dosyaları yüklenebilir ve manifest hash'i doğrulanmış.
+- ONNX dosyaları yüklenebilir, manifest hash'i doğrulanmış ve Python–ONNX–.NET runtime parity
+  sözleşmesi yön, quantile, risk ve baseline çıktılarında `1e-5` toleransla geçmiş.
 - Model manifestinde `productionEligible=true` bulunuyor.
 
-Kapılardan biri başarısızsa model registry kaydı oluşturulabilir fakat production alias verilmez.
+Manifest yalnızca offline kanıttır ve tek başına production yetkisi değildir. Kapılardan biri
+başarısızsa model registry kaydı oluşturulabilir fakat production alias verilmez. Daha yeni fakat
+offline yön ve senaryo kapılarının ikisini de geçememiş bir artifact mevcut uygun shadow adayını
+yerinden edemez.
+
+Canlı tahmin kendi baseline olasılıklarını ve o anda kullanılan neutral-band eşiğini saklar. Ufuk
+dolduğunda final barlardan gerçekleşen yön/getiri/volatilite çözülür; kaynak bar kimliği SHA-256 ile
+dondurulur. Model Brier, baseline Brier, Brier skill, ECE, P10-P90 kapsama, pinball loss ve risk MAE
+hesaplanır. Canlı inceleme için en az 100 sonuç, 20 farklı değerlendirme günü, her sınıfta en az 10
+sonuç, en az +%5 Brier skill, en fazla %5 ECE ve %75-%90 interval coverage gerekir. Bu koşulların
+tamamı geçse bile durum yalnızca `eligible_for_manual_review` olur; otomatik production terfisi yoktur.
 
 ## Özellik grubu ablation kuralları
 

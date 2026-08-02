@@ -63,14 +63,7 @@ public sealed class OnnxModelBundle : IDisposable
 
     public RuntimePrediction Predict(FeatureVector features)
     {
-        float[] values = _featureNames.Select(name =>
-        {
-            if (!features.Values.TryGetValue(name, out double value))
-            {
-                throw new InvalidDataException($"Feature '{name}' is missing from the inference vector.");
-            }
-            return (float)value;
-        }).ToArray();
+        float[] values = ResolveInputValues(features);
         using OrtValue input = OrtValue.CreateTensorValueFromMemory<float>(values, [1, values.Length]);
         Dictionary<string, OrtValue> inputs = new()
         {
@@ -111,6 +104,87 @@ public sealed class OnnxModelBundle : IDisposable
         double risk = Math.Clamp(RunScalar(_riskSession, inputs), 0, 1);
         return new RuntimePrediction(probabilities[2], probabilities[1], probabilities[0], orderedQuantiles[0], orderedQuantiles[1], orderedQuantiles[2], risk);
     }
+
+    public RuntimeDirectionPrediction PredictBaseline(FeatureVector features)
+    {
+        float[] values = ResolveInputValues(features);
+        double[] probabilities;
+        if (string.Equals(_manifest.BaselineType, "logistic", StringComparison.OrdinalIgnoreCase) &&
+            _manifest.BaselineCoefficients is { } coefficients &&
+            _manifest.BaselineIntercept is { Count: 3 } intercept &&
+            coefficients.Count == 3 * values.Length)
+        {
+            double[] scores = new double[3];
+            for (int classIndex = 0; classIndex < scores.Length; classIndex++)
+            {
+                double score = intercept[classIndex];
+                int offset = classIndex * values.Length;
+                for (int featureIndex = 0; featureIndex < values.Length; featureIndex++)
+                {
+                    score += coefficients[offset + featureIndex] * values[featureIndex];
+                }
+                scores[classIndex] = score;
+            }
+            double max = scores.Max();
+            double[] exponentials = scores.Select(score => Math.Exp(score - max)).ToArray();
+            double total = exponentials.Sum();
+            probabilities = exponentials.Select(value => value / total).ToArray();
+        }
+        else
+        {
+            IReadOnlyList<double>? prior = _manifest.BaselineClassPrior ?? _manifest.ClassPrior;
+            probabilities = prior is { Count: 3 }
+                ? prior.ToArray()
+                : [1d / 3, 1d / 3, 1d / 3];
+        }
+        return new RuntimeDirectionPrediction(probabilities[2], probabilities[1], probabilities[0]);
+    }
+
+    public void VerifyRuntimeParity(string fixturePath, double tolerance = 1e-5)
+    {
+        RuntimeParityFixture fixture = JsonSerializer.Deserialize<RuntimeParityFixture>(
+            File.ReadAllText(fixturePath),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            ?? throw new InvalidDataException("Invalid runtime parity fixture.");
+        if (!string.Equals(fixture.ContractVersion, "v1", StringComparison.Ordinal) ||
+            !string.Equals(fixture.FeatureSetVersion, _manifest.FeatureSetVersion, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Runtime parity contract or feature schema mismatch.");
+        }
+        FeatureVector vector = new(DateTimeOffset.UnixEpoch, fixture.FeatureSetVersion, fixture.Features);
+        RuntimePrediction actual = Predict(vector);
+        RuntimeDirectionPrediction baseline = PredictBaseline(vector);
+        (string Name, double Expected, double Actual)[] values =
+        [
+            ("up", fixture.Expected.Up, actual.Up),
+            ("neutral", fixture.Expected.Neutral, actual.Neutral),
+            ("down", fixture.Expected.Down, actual.Down),
+            ("p10", fixture.Expected.P10, actual.P10),
+            ("p50", fixture.Expected.P50, actual.P50),
+            ("p90", fixture.Expected.P90, actual.P90),
+            ("riskScore", fixture.Expected.RiskScore, actual.RiskScore),
+            ("baselineUp", fixture.Expected.BaselineUp, baseline.Up),
+            ("baselineNeutral", fixture.Expected.BaselineNeutral, baseline.Neutral),
+            ("baselineDown", fixture.Expected.BaselineDown, baseline.Down)
+        ];
+        foreach ((string name, double expected, double value) in values)
+        {
+            if (!double.IsFinite(value) || Math.Abs(expected - value) > tolerance)
+            {
+                throw new InvalidDataException(
+                    $"Runtime parity failed for '{name}': Python={expected:R}, .NET={value:R}.");
+            }
+        }
+    }
+
+    private float[] ResolveInputValues(FeatureVector features) => _featureNames.Select(name =>
+    {
+        if (!features.Values.TryGetValue(name, out double value))
+        {
+            throw new InvalidDataException($"Feature '{name}' is missing from the inference vector.");
+        }
+        return (float)value;
+    }).ToArray();
 
     private static double RunScalar(InferenceSession session, IReadOnlyDictionary<string, OrtValue> inputs)
     {

@@ -10,6 +10,7 @@ import { formatPercent, formatUtc } from '../lib/format'
 export function ShadowPage() {
   const { operations } = useProboraData()
   const dashboard = operations.predictionDashboard
+  const liveScores = operations.liveScoringDashboard
 
   return (
     <div className="page-stack">
@@ -33,6 +34,31 @@ export function ShadowPage() {
           <section className="surface">
             <header className="section-heading"><div><p className="eyebrow">Kanıt birikimi</p><h2>Sistem neden zamana ihtiyaç duyuyor?</h2></div><StatusBadge tone="ai">Değerlendirme sürüyor</StatusBadge></header>
             <ShadowAccumulationChart dashboard={dashboard} />
+          </section>
+
+          <section className="surface">
+            <header className="section-heading">
+              <div><p className="eyebrow">Canlı sonuç sözleşmesi</p><h2>Brier ve baseline karşılaştırması</h2></div>
+              <StatusBadge tone={liveScores?.state === 'manual_review_available' ? 'success' : 'warning'}>
+                {liveScores?.state === 'manual_review_available' ? 'Manuel incelemeye hazır' : 'Sonuç birikiyor'}
+              </StatusBadge>
+            </header>
+            <div className="shadow-model-list">
+              {(liveScores?.models ?? []).map((score) => (
+                <article className="shadow-evidence-card" key={`score-${score.version}`}>
+                  <header><div><p className="eyebrow">{score.assetClass === 'crypto' ? 'Kripto' : 'ABD hisse & ETF'}</p><h2>{score.horizonDays} {score.assetClass === 'crypto' ? 'günlük' : 'seanslık'} canlı skor</h2></div></header>
+                  <dl>
+                    <div><dt>Sonuçlanan</dt><dd>{score.outcomeCount}/{liveScores?.requiredOutcomesPerModel ?? 100}</dd></div>
+                    <div><dt>Değerlendirme günü</dt><dd>{score.evaluationDays}/{liveScores?.requiredEvaluationDays ?? 20}</dd></div>
+                    <div><dt>Model Brier</dt><dd>{score.brierScore === null ? 'Bekleniyor' : score.brierScore.toFixed(4)}</dd></div>
+                    <div><dt>Baseline Brier</dt><dd>{score.baselineBrierScore === null ? 'Bekleniyor' : score.baselineBrierScore.toFixed(4)}</dd></div>
+                    <div><dt>Brier becerisi</dt><dd>{score.brierSkillScore === null ? 'Bekleniyor' : formatPercent(score.brierSkillScore)}</dd></div>
+                    <div><dt>Kalibrasyon hatası</dt><dd>{score.expectedCalibrationError === null ? 'Bekleniyor' : formatPercent(score.expectedCalibrationError)}</dd></div>
+                  </dl>
+                  <footer><span>{score.promotionBlockers[0] ?? 'Tüm canlı kapılar geçti; yine de otomatik terfi yok.'}</span></footer>
+                </article>
+              ))}
+            </div>
           </section>
 
           <section className="shadow-model-list">

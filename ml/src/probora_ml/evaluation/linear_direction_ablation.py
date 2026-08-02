@@ -49,6 +49,32 @@ STABLE_FEATURE_NAMES = (
     "momentum_rank_60s",
     "volatility_rank_20s",
 )
+AUTOREGRESSIVE_FEATURE_NAMES = (
+    "return_1s",
+    "return_3s",
+    "return_5s",
+    "return_10s",
+    "return_20s",
+    "return_60s",
+    "return_120s",
+    "volatility_5s",
+    "volatility_20s",
+    "volatility_60s",
+    "downside_volatility_20s",
+    "rsi_14",
+    "macd_normalized",
+    "atr_14_normalized",
+    "bollinger_width_20",
+    "ma_ratio_5s",
+    "ma_ratio_20s",
+    "ma_ratio_60s",
+    "ma_ratio_200s",
+    "ma_slope_20s",
+    "volume_zscore_20s",
+    "dollar_volume_zscore_20s",
+    "overnight_gap_1s",
+    "intraday_return_1s",
+)
 CANDIDATE_C = (0.001, 0.01, 0.1, 1.0)
 FEATURE_SETS = {
     "stable": STABLE_FEATURE_NAMES,
@@ -128,6 +154,47 @@ def _fit_selected_model(
     return model, feature_names, selection
 
 
+def _fit_autoregressive_challenger(
+    train: pd.DataFrame,
+) -> tuple[Pipeline, dict[str, object]]:
+    fit_mask, selection_mask = _inner_masks(train)
+    fit_y = train.loc[fit_mask, "target_direction"].to_numpy(int)
+    selection_y = train.loc[selection_mask, "target_direction"].to_numpy(int)
+    candidates: list[dict[str, object]] = []
+    for regularization_c in CANDIDATE_C:
+        model = _model(regularization_c).fit(
+            train.loc[fit_mask, AUTOREGRESSIVE_FEATURE_NAMES],
+            fit_y,
+        )
+        probabilities = model.predict_proba(
+            train.loc[selection_mask, AUTOREGRESSIVE_FEATURE_NAMES]
+        )
+        candidates.append(
+            {
+                "regularization_c": regularization_c,
+                "selection_brier": multiclass_brier(selection_y, probabilities),
+                "parameter_count": len(AUTOREGRESSIVE_FEATURE_NAMES) * 3 + 3,
+            }
+        )
+    winner = min(
+        candidates,
+        key=lambda row: float(row["selection_brier"])
+        + 1e-5 * int(row["parameter_count"]),
+    )
+    model = _model(float(winner["regularization_c"])).fit(
+        train.loc[:, AUTOREGRESSIVE_FEATURE_NAMES],
+        train["target_direction"].to_numpy(int),
+    )
+    return model, {
+        **winner,
+        "feature_set": "autoregressive",
+        "top_candidates": sorted(
+            candidates,
+            key=lambda row: float(row["selection_brier"]),
+        ),
+    }
+
+
 def _metrics(
     labels: np.ndarray,
     probabilities: np.ndarray,
@@ -186,6 +253,41 @@ def evaluate_linear_direction_model(
             weight,
         )
         baseline = np.tile(prior, (len(test_y), 1))
+        selected_metrics = _metrics(test_y, probabilities, baseline)
+
+        autoregressive, autoregressive_selection = _fit_autoregressive_challenger(train)
+        autoregressive_validation_raw = autoregressive.predict_proba(
+            validation.loc[:, AUTOREGRESSIVE_FEATURE_NAMES]
+        )
+        autoregressive_test_raw = autoregressive.predict_proba(
+            test.loc[:, AUTOREGRESSIVE_FEATURE_NAMES]
+        )
+        autoregressive_temperature = fit_temperature(
+            validation_y,
+            autoregressive_validation_raw,
+        )
+        autoregressive_validation_calibrated = temperature_scale(
+            autoregressive_validation_raw,
+            autoregressive_temperature,
+        )
+        autoregressive_weight = fit_probability_blend(
+            validation_y,
+            autoregressive_validation_calibrated,
+            np.tile(prior, (len(validation_y), 1)),
+        )
+        autoregressive_probabilities = blend_probabilities(
+            temperature_scale(
+                autoregressive_test_raw,
+                autoregressive_temperature,
+            ),
+            np.tile(prior, (len(test_y), 1)),
+            autoregressive_weight,
+        )
+        autoregressive_metrics = _metrics(
+            test_y,
+            autoregressive_probabilities,
+            baseline,
+        )
         fold_rows.append(
             {
                 "fold": fold.name,
@@ -195,7 +297,18 @@ def evaluate_linear_direction_model(
                     "temperature": temperature,
                     "probability_blend_weight": weight,
                 },
-                "metrics": _metrics(test_y, probabilities, baseline),
+                "metrics": selected_metrics,
+                "autoregressive_challenger": {
+                    "selection": autoregressive_selection,
+                    "calibration": {
+                        "temperature": autoregressive_temperature,
+                        "probability_blend_weight": autoregressive_weight,
+                    },
+                    "metrics": autoregressive_metrics,
+                    "brier_delta_vs_selected": (
+                        autoregressive_metrics["brier"] - selected_metrics["brier"]
+                    ),
+                },
             }
         )
 
@@ -210,10 +323,22 @@ def evaluate_linear_direction_model(
         "resolution",
     )
 
-    def aggregate(rows: list[dict[str, object]]) -> dict[str, float]:
+    def aggregate(
+        rows: list[dict[str, object]],
+        source: str = "metrics",
+    ) -> dict[str, float]:
         return {
             metric: float(
-                np.mean([float(row["metrics"][metric]) for row in rows])  # type: ignore[index]
+                np.mean(
+                    [
+                        float(
+                            row[source]["metrics"][metric]  # type: ignore[index]
+                            if source == "autoregressive_challenger"
+                            else row[source][metric]  # type: ignore[index]
+                        )
+                        for row in rows
+                    ]
+                )
             )
             for metric in metric_names
         }
@@ -221,13 +346,21 @@ def evaluate_linear_direction_model(
     return {
         "horizon_days": horizon_days,
         "methodology": (
-            "Regularization and a predeclared stable/full feature set are selected on the final "
-            "purged year inside each outer training period. Temperature and prior blend are fitted "
-            "only on the outer validation year. The outer test year remains blind."
+            "Regularization and predeclared stable/full feature sets are selected on the final "
+            "purged year inside each outer training period. A separately calibrated "
+            "autoregressive challenger contains only the asset's lagged price, volatility, "
+            "volume and session structure and cannot influence model selection. Temperature and "
+            "prior blend are fitted only on the outer validation year. The outer test year "
+            "remains blind."
         ),
         "folds": fold_rows,
         "historical_2023_2025": aggregate(fold_rows[:3]),
         "locked_2026": fold_rows[3]["metrics"],
+        "historical_2023_2025_autoregressive": aggregate(
+            fold_rows[:3],
+            "autoregressive_challenger",
+        ),
+        "locked_2026_autoregressive": fold_rows[3]["autoregressive_challenger"]["metrics"],
     }
 
 

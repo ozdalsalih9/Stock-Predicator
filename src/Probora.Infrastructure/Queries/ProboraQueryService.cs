@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Probora.Application.Abstractions;
+using Probora.Application.Analysis;
 using Probora.Contracts.Analysis;
 using Probora.Contracts.Assets;
 using Probora.Contracts.News;
@@ -42,7 +43,7 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
                 asset.DataStartsAt,
                 latest?.Close,
                 latest?.CloseTime,
-                FreshnessState(latest?.CloseTime, TimeSpan.FromHours(2))));
+                FreshnessState(latest?.CloseTime, PriceFreshnessWindow(asset.AssetClass))));
         }
 
         return response;
@@ -120,7 +121,9 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
             .Where(x => x.AssetId == result.asset.Id)
             .MaxAsync(x => (DateTimeOffset?)x.PublishedAt, cancellationToken);
 
-        string freshnessState = FreshnessState(latestPrice?.CloseTime, TimeSpan.FromHours(26));
+        string freshnessState = FreshnessState(
+            latestPrice?.CloseTime,
+            PriceFreshnessWindow(result.asset.AssetClass));
         return new AnalysisResponse(
             result.asset.Symbol,
             result.prediction.AnalysisTime,
@@ -212,7 +215,12 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
             DateTimeOffset? ingestion = await dbContext.PriceBars.AsNoTracking()
                 .Where(x => x.AssetId == asset.Id)
                 .MaxAsync(x => (DateTimeOffset?)x.IngestedAt, cancellationToken);
-            items.Add(new("price_bars", asset.Symbol, latest, ingestion, FreshnessState(latest, TimeSpan.FromHours(2))));
+            items.Add(new(
+                "price_bars",
+                asset.Symbol,
+                latest,
+                ingestion,
+                FreshnessState(latest, PriceFreshnessWindow(asset.AssetClass))));
             DateTimeOffset? latestNews = await dbContext.NewsArticles.AsNoTracking()
                 .Where(x => x.AssetId == asset.Id)
                 .MaxAsync(x => (DateTimeOffset?)x.PublishedAt, cancellationToken);
@@ -543,6 +551,128 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
             state);
     }
 
+    public async Task<LiveScoringDashboardResponse> GetLiveScoringDashboardAsync(
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset checkedAt = timeProvider.GetUtcNow();
+        List<ModelVersion> candidates = await dbContext.ModelVersions.AsNoTracking()
+            .Where(model => model.IsShadowCandidate && !model.IsProduction &&
+                            (model.AssetClass == AssetClasses.Crypto || model.AssetClass == AssetClasses.UsEquity))
+            .OrderBy(model => model.AssetClass)
+            .ThenBy(model => model.HorizonDays)
+            .ThenByDescending(model => model.TrainedAt)
+            .ToListAsync(cancellationToken);
+        Guid[] candidateIds = candidates.Select(model => model.Id).ToArray();
+        var rows = await (
+            from outcome in dbContext.PredictionOutcomes.AsNoTracking()
+            join prediction in dbContext.Predictions.AsNoTracking()
+                on outcome.PredictionId equals prediction.Id
+            where candidateIds.Contains(prediction.ModelVersionId)
+            select new
+            {
+                prediction.ModelVersionId,
+                prediction.AnalysisTime,
+                prediction.DownProbability,
+                prediction.NeutralProbability,
+                prediction.UpProbability,
+                outcome.RealizedDirection,
+                outcome.DirectionBrierScore,
+                outcome.BaselineBrierScore,
+                outcome.IntervalCovered,
+                outcome.QuantilePinballLoss,
+                outcome.RiskAbsoluteError
+            }).ToListAsync(cancellationToken);
+
+        List<LiveModelScoreResponse> models = [];
+        foreach (ModelVersion candidate in candidates)
+        {
+            var modelRows = rows.Where(row => row.ModelVersionId == candidate.Id).ToArray();
+            int outcomeCount = modelRows.Length;
+            int evaluationDays = modelRows.Select(row => row.AnalysisTime.UtcDateTime.Date).Distinct().Count();
+            int downCount = modelRows.Count(row => row.RealizedDirection == 0);
+            int neutralCount = modelRows.Count(row => row.RealizedDirection == 1);
+            int upCount = modelRows.Count(row => row.RealizedDirection == 2);
+            double? brier = outcomeCount == 0 ? null : modelRows.Average(row => row.DirectionBrierScore);
+            double? baselineBrier = modelRows.All(row => row.BaselineBrierScore.HasValue) && outcomeCount > 0
+                ? modelRows.Average(row => row.BaselineBrierScore!.Value)
+                : null;
+            double? skill = brier.HasValue && baselineBrier is > 0
+                ? 1 - brier.Value / baselineBrier.Value
+                : null;
+            double? ece = outcomeCount == 0 ? null : ExpectedCalibrationError(modelRows.Select(row =>
+                (new[] { row.DownProbability, row.NeutralProbability, row.UpProbability }, row.RealizedDirection)));
+            double? coverage = outcomeCount == 0 ? null : modelRows.Average(row => row.IntervalCovered ? 1d : 0d);
+            LivePromotionVerdict verdict = LivePromotionGate.Evaluate(new LivePromotionEvidence(
+                outcomeCount,
+                evaluationDays,
+                downCount,
+                neutralCount,
+                upCount,
+                skill,
+                ece,
+                coverage));
+            models.Add(new LiveModelScoreResponse(
+                candidate.Version,
+                candidate.AssetClass,
+                candidate.HorizonDays,
+                outcomeCount,
+                evaluationDays,
+                downCount,
+                neutralCount,
+                upCount,
+                brier,
+                baselineBrier,
+                skill,
+                ece,
+                coverage,
+                outcomeCount == 0 ? null : modelRows.Average(row => row.QuantilePinballLoss),
+                outcomeCount == 0 ? null : modelRows.Average(row => row.RiskAbsoluteError),
+                verdict.State,
+                verdict.Blockers));
+        }
+
+        string state = models.Count switch
+        {
+            0 => "no_candidate",
+            _ when models.Any(model => model.PromotionState == "eligible_for_manual_review") => "manual_review_available",
+            _ when models.Sum(model => model.OutcomeCount) == 0 => "waiting_for_maturity",
+            _ => "collecting_evidence"
+        };
+        return new LiveScoringDashboardResponse(
+            checkedAt,
+            state,
+            models.Sum(model => model.OutcomeCount),
+            LivePromotionGate.RequiredOutcomes,
+            LivePromotionGate.RequiredEvaluationDays,
+            models);
+    }
+
+    private static double ExpectedCalibrationError(
+        IEnumerable<(double[] Probabilities, int RealizedDirection)> values,
+        int bins = 10)
+    {
+        var rows = values.Select(value =>
+        {
+            double confidence = value.Probabilities.Max();
+            int predicted = Array.IndexOf(value.Probabilities, confidence);
+            return (Confidence: confidence, Correct: predicted == value.RealizedDirection ? 1d : 0d);
+        }).ToArray();
+        double result = 0;
+        for (int index = 0; index < bins; index++)
+        {
+            double lower = index / (double)bins;
+            double upper = (index + 1) / (double)bins;
+            var group = rows.Where(row => row.Confidence > lower && row.Confidence <= upper).ToArray();
+            if (group.Length == 0)
+            {
+                continue;
+            }
+            result += group.Length / (double)rows.Length *
+                Math.Abs(group.Average(row => row.Correct) - group.Average(row => row.Confidence));
+        }
+        return result;
+    }
+
     public async Task<IReadOnlyList<MarketPriceUpdate>> GetLatestPricesAsync(CancellationToken cancellationToken)
     {
         List<Asset> assets = await dbContext.Assets.AsNoTracking().Where(x => x.IsActive).ToListAsync(cancellationToken);
@@ -606,6 +736,13 @@ public sealed class ProboraQueryService(ProboraDbContext dbContext, TimeProvider
         _ when timeProvider.GetUtcNow() - dataTime.Value <= allowedAge => "fresh",
         _ => "stale"
     };
+
+    public static TimeSpan PriceFreshnessWindow(string assetClass) =>
+        assetClass == AssetClasses.UsEquity
+            // Daily US bars stay valid between completed sessions, including weekends
+            // and exchange holidays. This matches the inference staleness guard.
+            ? TimeSpan.FromDays(5)
+            : TimeSpan.FromHours(2);
 
     private static string ToContractStatus(AnalysisStatus status) => status switch
     {

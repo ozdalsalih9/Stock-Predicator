@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { api } from '../lib/api'
-import type { ShadowCollectorDashboard, ShadowPredictionDashboard, UsEquityShadowDashboard } from '../types'
+import type { LiveScoringDashboard, ResearchPipelineDashboard, ShadowCollectorDashboard, ShadowPredictionDashboard, UsEquityShadowDashboard } from '../types'
 
 export function useOperationsDashboard(enabled: boolean) {
   const [dashboard, setDashboard] = useState<ShadowCollectorDashboard | null>(null)
   const [equityDashboard, setEquityDashboard] = useState<UsEquityShadowDashboard | null>(null)
   const [predictionDashboard, setPredictionDashboard] = useState<ShadowPredictionDashboard | null>(null)
+  const [liveScoringDashboard, setLiveScoringDashboard] = useState<LiveScoringDashboard | null>(null)
+  const [researchDashboard, setResearchDashboard] = useState<ResearchPipelineDashboard | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [revision, setRevision] = useState(0)
@@ -21,11 +23,15 @@ export function useOperationsDashboard(enabled: boolean) {
         api.shadowCollector(controller.signal),
         api.usEquityShadow(controller.signal),
         api.shadowPredictions(controller.signal),
+        api.liveScores(controller.signal),
+        api.researchPipeline(controller.signal),
       ])
-        .then(([derivatives, equities, predictions]) => {
+        .then(([derivatives, equities, predictions, liveScores, research]) => {
           setDashboard(derivatives)
           setEquityDashboard(equities)
           setPredictionDashboard(predictions)
+          setLiveScoringDashboard(liveScores)
+          setResearchDashboard(research)
           setError('')
         })
         .catch((reason: unknown) => {
@@ -45,5 +51,5 @@ export function useOperationsDashboard(enabled: boolean) {
     }
   }, [enabled, revision])
 
-  return { dashboard, equityDashboard, predictionDashboard, loading, error, refresh }
+  return { dashboard, equityDashboard, predictionDashboard, liveScoringDashboard, researchDashboard, loading, error, refresh }
 }

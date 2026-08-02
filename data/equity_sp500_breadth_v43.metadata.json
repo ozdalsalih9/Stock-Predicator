@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "created_at": "2026-07-31T15:49:08.263077+00:00",
+  "dataset_file": "data\\equity_sp500_breadth_v43.parquet",
+  "dataset_sha256": "41c06f9d625c8939fed583558d7d4b8c711aa89bc99518aef75592098218ce25",
+  "coverage_report_file": "artifacts\\reports\\sp500-pit-coverage-v43-qualified.json",
+  "coverage_report_sha256": "a27bdea4415278c62adaa1cf64d5e60a0014589b6b0fcf7fbf6fa87137082506",
+  "membership_file": "data\\reference\\sp500_historical_components.audited.csv",
+  "membership_sha256": "b4973a955c7698b846148e5f9fc4a2c7228d248e80bb9cd6a22380492de44444",
+  "identity_quarantine_sha256": "fdaf7106062a3eccc02947ce55d1d3a60458147a1f684d1baf1fae524e2dbc20",
+  "coverage_start_date": "2020-01-28",
+  "coverage_end_date": "2026-05-28",
+  "row_count": 59356,
+  "asset_count": 19,
+  "horizons": [
+    30,
+    90
+  ],
+  "feature_names": [
+    "sp500_advance_ratio_1s",
+    "sp500_breadth_5s",
+    "sp500_breadth_20s",
+    "sp500_breadth_60s",
+    "sp500_above_ma_20s",
+    "sp500_above_ma_60s",
+    "sp500_return_dispersion_20s",
+    "sp500_return_dispersion_60s",
+    "sp500_median_return_20s",
+    "sp500_median_return_60s"
+  ]
+}

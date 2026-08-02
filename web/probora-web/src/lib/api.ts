@@ -1,4 +1,4 @@
-import type { Analysis, Asset, ModelCard, NewsArticle, PriceBar, ShadowCollectorDashboard, ShadowPredictionDashboard, SystemFreshness, UsEquityShadowDashboard } from '../types'
+import type { Analysis, Asset, LiveScoringDashboard, ModelCard, NewsArticle, PriceBar, ResearchPipelineDashboard, ShadowCollectorDashboard, ShadowPredictionDashboard, SystemFreshness, UsEquityShadowDashboard } from '../types'
 
 export class ApiError extends Error {
   constructor(
@@ -42,6 +42,10 @@ export const api = {
     get<UsEquityShadowDashboard>('/api/v1/system/us-equity-shadow', signal),
   shadowPredictions: (signal?: AbortSignal) =>
     get<ShadowPredictionDashboard>('/api/v1/system/shadow-predictions', signal),
+  liveScores: (signal?: AbortSignal) =>
+    get<LiveScoringDashboard>('/api/v1/system/live-scores', signal),
+  researchPipeline: (signal?: AbortSignal) =>
+    get<ResearchPipelineDashboard>('/api/v1/system/research-pipeline', signal),
   modelCard: (version: string, signal?: AbortSignal) =>
     get<ModelCard>(`/api/v1/models/${encodeURIComponent(version)}/card`, signal),
 }

@@ -91,6 +91,13 @@ builder.Services.AddQuartz(quartz =>
         .ForJob(predictionJob)
         .WithIdentity("us-equity-post-collector-prediction-trigger")
         .WithCronSchedule("0 45 5,7,9 ? * MON-SAT", schedule => schedule.InTimeZone(TimeZoneInfo.Utc)));
+    JobKey outcomeJob = new("prediction-outcome-resolution");
+    quartz.AddJob<PredictionOutcomeJob>(options => options.WithIdentity(outcomeJob));
+    quartz.AddTrigger(options => options
+        .ForJob(outcomeJob)
+        .WithIdentity("prediction-outcome-resolution-trigger")
+        .StartNow()
+        .WithCronSchedule("0 20 * ? * *", schedule => schedule.InTimeZone(TimeZoneInfo.Utc)));
     JobKey derivativeJob = new("derivative-shadow-collector");
     quartz.AddJob<DerivativeShadowCollectorJob>(options => options.WithIdentity(derivativeJob));
     quartz.AddTrigger(options => options

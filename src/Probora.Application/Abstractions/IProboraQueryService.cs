@@ -26,6 +26,7 @@ public interface IProboraQueryService
     Task<ShadowCollectorDashboardResponse> GetShadowCollectorDashboardAsync(CancellationToken cancellationToken);
     Task<UsEquityShadowDashboardResponse> GetUsEquityShadowDashboardAsync(CancellationToken cancellationToken);
     Task<ShadowPredictionDashboardResponse> GetShadowPredictionDashboardAsync(CancellationToken cancellationToken);
+    Task<LiveScoringDashboardResponse> GetLiveScoringDashboardAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<MarketPriceUpdate>> GetLatestPricesAsync(CancellationToken cancellationToken);
     Task<IReadOnlyList<NewsArticleResponse>?> GetNewsAsync(string symbol, int limit, CancellationToken cancellationToken);
 }
@@ -33,4 +34,9 @@ public interface IProboraQueryService
 public interface IPriceBarWriter
 {
     Task<int> UpsertAsync(IReadOnlyCollection<Domain.Markets.PriceBarCandidate> bars, CancellationToken cancellationToken);
+}
+
+public interface IResearchPipelineStatusReader
+{
+    Task<ResearchPipelineDashboardResponse> GetAsync(CancellationToken cancellationToken);
 }

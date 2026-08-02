@@ -16,6 +16,7 @@ from onnxmltools.convert.common.data_types import FloatTensorType
 from sklearn.linear_model import LogisticRegression
 
 from probora_ml.config import FEATURE_NAMES, FEATURE_SET_VERSION, SEEDS
+from probora_ml.evaluation.baselines import select_direction_baseline
 from probora_ml.evaluation.metrics import (
     brier_skill_score,
     classwise_expected_calibration_error,
@@ -132,6 +133,87 @@ def _artifact_sha256(directory: Path) -> str:
     return digest.hexdigest()
 
 
+def _write_runtime_parity_fixture(
+    directory: Path,
+    manifest: dict[str, object],
+    feature_names: tuple[str, ...],
+    reference_row: pd.Series,
+) -> None:
+    """Freeze Python ONNX outputs so the .NET runtime can reject contract drift."""
+    values = reference_row.loc[list(feature_names)].to_numpy(dtype=np.float32)
+    inputs = {str(manifest["inputName"]): values.reshape(1, -1)}
+    direction_predictions: list[np.ndarray] = []
+    for relative_path in manifest["directionModels"]:  # type: ignore[union-attr]
+        session = ort.InferenceSession(
+            (directory / str(relative_path)).as_posix(), providers=["CPUExecutionProvider"]
+        )
+        output_names = [output.name for output in session.get_outputs()]
+        desired = str(manifest["outputName"])
+        output_name = desired if desired in output_names else output_names[-1]
+        direction_predictions.append(
+            np.asarray(session.run([output_name], inputs)[0], dtype=float).reshape(-1)
+        )
+    probabilities = np.mean(direction_predictions, axis=0)
+    probabilities = temperature_scale(
+        probabilities.reshape(1, -1), float(manifest["temperature"])
+    )[0]
+    prior = np.asarray(manifest["classPrior"], dtype=float)
+    blend_weight = float(manifest["probabilityBlendWeight"])
+    probabilities = blend_weight * probabilities + (1 - blend_weight) * prior
+
+    quantiles = []
+    quantile_models = manifest["quantileModels"]
+    for name in ("p10", "p50", "p90"):
+        path = directory / str(quantile_models[name])  # type: ignore[index]
+        session = ort.InferenceSession(path.as_posix(), providers=["CPUExecutionProvider"])
+        quantiles.append(float(np.asarray(session.run(None, inputs)[0]).reshape(-1)[0]))
+    quantiles.sort()
+    scale_feature = str(manifest["conformalScaleFeature"])
+    scale_value = float(values[list(feature_names).index(scale_feature)])
+    scale = max(scale_value, 0) * np.sqrt(
+        float(manifest["horizonDays"]) / max(1, float(manifest["conformalPeriodsPerYear"]))
+    )
+    adjustment = max(0, float(manifest["conformalMultiplier"])) * max(scale, 1e-4)
+    quantiles[0] -= adjustment
+    quantiles[2] += adjustment
+
+    risk_session = ort.InferenceSession(
+        (directory / str(manifest["riskModel"])).as_posix(), providers=["CPUExecutionProvider"]
+    )
+    risk = float(np.clip(np.asarray(risk_session.run(None, inputs)[0]).reshape(-1)[0], 0, 1))
+
+    baseline_prior = np.asarray(manifest["baselineClassPrior"], dtype=float)
+    baseline = baseline_prior
+    coefficients = manifest.get("baselineCoefficients")
+    intercept = manifest.get("baselineIntercept")
+    if manifest["baselineType"] == "logistic" and coefficients is not None and intercept is not None:
+        scores = np.asarray(coefficients, dtype=float).reshape(3, -1) @ values.astype(float)
+        scores += np.asarray(intercept, dtype=float)
+        exponentials = np.exp(scores - scores.max())
+        baseline = exponentials / exponentials.sum()
+
+    fixture = {
+        "contractVersion": "v1",
+        "featureSetVersion": manifest["featureSetVersion"],
+        "features": {name: float(value) for name, value in zip(feature_names, values, strict=True)},
+        "expected": {
+            "up": float(probabilities[2]),
+            "neutral": float(probabilities[1]),
+            "down": float(probabilities[0]),
+            "p10": quantiles[0],
+            "p50": quantiles[1],
+            "p90": quantiles[2],
+            "riskScore": risk,
+            "baselineUp": float(baseline[2]),
+            "baselineNeutral": float(baseline[1]),
+            "baselineDown": float(baseline[0]),
+        },
+    }
+    (directory / "runtime_parity.json").write_text(
+        json.dumps(fixture, indent=2), encoding="utf-8"
+    )
+
+
 def train_and_evaluate(
     samples: pd.DataFrame,
     horizon_days: int,
@@ -183,9 +265,16 @@ def train_and_evaluate(
             calibrated_test, climatology_probabilities, probability_blend_weight
         )
         baseline = LogisticRegression(max_iter=2_000, class_weight="balanced").fit(train_x, train_y)
+        validation_logistic_probabilities = baseline.predict_proba(validation_x)
         logistic_probabilities = baseline.predict_proba(test_x)
-        logistic_brier = multiclass_brier(test_y, logistic_probabilities)
-        climatology_brier = multiclass_brier(test_y, climatology_probabilities)
+        selected_baseline = select_direction_baseline(
+            validation_y,
+            validation_logistic_probabilities,
+            validation_prior,
+            test_y,
+            logistic_probabilities,
+            climatology_probabilities,
+        )
 
         validation_quantile_predictions = {}
         test_quantile_predictions = {}
@@ -195,18 +284,14 @@ def train_and_evaluate(
             )
             validation_quantile_predictions[name] = model.predict(validation_x)
             test_quantile_predictions[name] = model.predict(test_x)
-        validation_ordered = np.sort(
-            np.column_stack(list(validation_quantile_predictions.values())), axis=1
-        )
+        validation_ordered = np.sort(np.column_stack(list(validation_quantile_predictions.values())), axis=1)
         ordered = np.sort(np.column_stack(list(test_quantile_predictions.values())), axis=1)
         validation_target_return = frame.loc[fold.validation, "target_return"].to_numpy()
-        validation_scale = (
-            validation_x[conformal_scale_feature].to_numpy(float)
-            * np.sqrt(horizon_days / periods_per_year)
+        validation_scale = validation_x[conformal_scale_feature].to_numpy(float) * np.sqrt(
+            horizon_days / periods_per_year
         )
-        test_scale = (
-            test_x[conformal_scale_feature].to_numpy(float)
-            * np.sqrt(horizon_days / periods_per_year)
+        test_scale = test_x[conformal_scale_feature].to_numpy(float) * np.sqrt(
+            horizon_days / periods_per_year
         )
         conformal_multiplier = fit_scaled_conformal_multiplier(
             validation_target_return,
@@ -252,13 +337,11 @@ def train_and_evaluate(
             train_x, training_risk
         )
         risk_prediction = np.clip(risk_model.predict(test_x), 0, 1)
-        baseline_risk_prediction = np.clip(
-            1 - np.exp(-test_x[risk_baseline_feature].to_numpy()), 0, 1
-        )
+        baseline_risk_prediction = np.clip(1 - np.exp(-test_x[risk_baseline_feature].to_numpy()), 0, 1)
         risk_mae = float(np.mean(np.abs(target_risk - risk_prediction)))
         baseline_risk_mae = float(np.mean(np.abs(target_risk - baseline_risk_prediction)))
         fold_brier = multiclass_brier(test_y, probabilities)
-        fold_baseline_brier = min(logistic_brier, climatology_brier)
+        fold_baseline_brier = selected_baseline.test_brier
         decomposition = multiclass_brier_decomposition(test_y, probabilities)
         fold_metrics.append(
             {
@@ -271,15 +354,19 @@ def train_and_evaluate(
                 "brier_uncertainty": decomposition.uncertainty,
                 "brier_decomposed": decomposition.decomposed_brier,
                 "brier_binning_gap": decomposition.binning_gap,
-                "logistic_brier": logistic_brier,
-                "climatology_brier": climatology_brier,
+                "selected_baseline": selected_baseline.name,
+                "baseline_selection_reason": selected_baseline.selection_reason,
+                "validation_logistic_brier": selected_baseline.validation_logistic_brier,
+                "validation_climatology_brier": (selected_baseline.validation_climatology_brier),
+                "validation_uniform_brier": selected_baseline.validation_uniform_brier,
+                "logistic_brier": selected_baseline.test_logistic_brier,
+                "climatology_brier": selected_baseline.test_climatology_brier,
+                "oracle_baseline_brier": selected_baseline.oracle_test_brier,
                 "ece": expected_calibration_error(test_y, probabilities),
                 "classwise_ece": classwise_expected_calibration_error(test_y, probabilities),
                 "accuracy": float((probabilities.argmax(axis=1) == test_y).mean()),
                 "raw_coverage": quantile_interval_coverage(target_return, ordered[:, 0], ordered[:, 2]),
-                "coverage": quantile_interval_coverage(
-                    target_return, calibrated_lower, calibrated_upper
-                ),
+                "coverage": quantile_interval_coverage(target_return, calibrated_lower, calibrated_upper),
                 "interval_width": float(np.mean(calibrated_upper - calibrated_lower)),
                 "interval_score": scored_interval,
                 "baseline_interval_score": baseline_interval_score,
@@ -312,28 +399,18 @@ def train_and_evaluate(
         np.mean([metric["baseline_quantile_pinball"] for metric in fold_metrics])
     )
     scored_interval = float(np.mean([metric["interval_score"] for metric in fold_metrics]))
-    baseline_scored_interval = float(
-        np.mean([metric["baseline_interval_score"] for metric in fold_metrics])
-    )
+    baseline_scored_interval = float(np.mean([metric["baseline_interval_score"] for metric in fold_metrics]))
     risk_mae = float(np.mean([metric["risk_mae"] for metric in fold_metrics]))
     baseline_risk_mae = float(np.mean([metric["baseline_risk_mae"] for metric in fold_metrics]))
     fold_wins = sum(metric["brier"] < metric["baseline_brier"] for metric in fold_metrics)
-    risk_fold_wins = sum(
-        metric["risk_mae"] < metric["baseline_risk_mae"] for metric in fold_metrics
-    )
+    risk_fold_wins = sum(metric["risk_mae"] < metric["baseline_risk_mae"] for metric in fold_metrics)
     quantile_fold_wins = sum(
-        metric["quantile_pinball"] < metric["baseline_quantile_pinball"]
-        for metric in fold_metrics
+        metric["quantile_pinball"] < metric["baseline_quantile_pinball"] for metric in fold_metrics
     )
     interval_fold_wins = sum(
-        metric["interval_score"] < metric["baseline_interval_score"]
-        for metric in fold_metrics
+        metric["interval_score"] < metric["baseline_interval_score"] for metric in fold_metrics
     )
-    direction_passed = (
-        brier <= baseline_brier * 0.95
-        and fold_wins >= 2
-        and ece <= 0.05
-    )
+    direction_passed = brier <= baseline_brier * 0.95 and fold_wins >= 2 and ece <= 0.05
     scenario_passed = (
         quantile_pinball <= baseline_quantile_pinball * 0.98
         and quantile_fold_wins >= 2
@@ -371,6 +448,14 @@ def train_and_evaluate(
     _export(risk_model, artifact_directory / risk_path, len(feature_names))
     artifact_sha = _artifact_sha256(artifact_directory)
 
+    final_baseline_type = str(fold_metrics[-1]["selected_baseline"])
+    baseline_coefficients: list[float] | None = None
+    baseline_intercept: list[float] | None = None
+    if final_baseline_type == "logistic":
+        final_baseline = LogisticRegression(max_iter=2_000, class_weight="balanced").fit(x, y)
+        baseline_coefficients = final_baseline.coef_.astype(float).reshape(-1).tolist()
+        baseline_intercept = final_baseline.intercept_.astype(float).tolist()
+
     # Use the most recent validation temperature; it is never fitted on an outer test period.
     manifest = {
         "version": version,
@@ -383,11 +468,14 @@ def train_and_evaluate(
         "temperature": fold_metrics[-1]["temperature"],
         "probabilityBlendWeight": fold_metrics[-1]["probability_blend_weight"],
         "classPrior": (np.bincount(y, minlength=3) / len(y)).tolist(),
+        "baselineType": final_baseline_type,
+        "baselineClassPrior": (np.bincount(y, minlength=3) / len(y)).tolist(),
+        "baselineCoefficients": baseline_coefficients,
+        "baselineIntercept": baseline_intercept,
+        "runtimeParityContractVersion": "v1",
         # Explanations perturb one feature to its training median. Zero is not a
         # neutral reference for ranks, RSI, breadth, beta or regime variables.
-        "featureReference": {
-            name: float(x[name].median()) for name in feature_names
-        },
+        "featureReference": {name: float(x[name].median()) for name in feature_names},
         "conformalAdjustment": 0,
         "conformalMode": "volatility_scaled",
         "conformalScaleFeature": conformal_scale_feature,
@@ -409,6 +497,13 @@ def train_and_evaluate(
         json.dumps({"version": feature_set_version, "features": feature_names}, indent=2), encoding="utf-8"
     )
     (artifact_directory / "metrics.json").write_text(json.dumps(fold_metrics, indent=2), encoding="utf-8")
+
+    _write_runtime_parity_fixture(
+        artifact_directory,
+        manifest,
+        feature_names,
+        x.iloc[-1],
+    )
 
     # Smoke-load every ONNX artifact before returning it as a valid bundle.
     for onnx_path in artifact_directory.glob("*.onnx"):

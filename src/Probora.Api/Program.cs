@@ -159,6 +159,12 @@ api.MapGet("/system/us-equity-shadow", async (IProboraQueryService queries, Canc
 api.MapGet("/system/shadow-predictions", async (IProboraQueryService queries, CancellationToken cancellationToken) =>
     Results.Ok(await queries.GetShadowPredictionDashboardAsync(cancellationToken)));
 
+api.MapGet("/system/live-scores", async (IProboraQueryService queries, CancellationToken cancellationToken) =>
+    Results.Ok(await queries.GetLiveScoringDashboardAsync(cancellationToken)));
+
+api.MapGet("/system/research-pipeline", async (IResearchPipelineStatusReader reader, CancellationToken cancellationToken) =>
+    Results.Ok(await reader.GetAsync(cancellationToken)));
+
 await app.RunAsync();
 
 static async Task InitialiseDatabaseAsync(IServiceProvider services)

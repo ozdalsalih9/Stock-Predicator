@@ -13,6 +13,7 @@ namespace Probora.Worker.Models;
 public sealed class ModelPromotionJob(
     ProboraDbContext dbContext,
     IOptions<ModelOptions> options,
+    TimeProvider timeProvider,
     ILogger<ModelPromotionJob> logger) : IJob
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -44,6 +45,17 @@ public sealed class ModelPromotionJob(
                     Convert.FromHexString(manifest.ArtifactSha256)))
             {
                 throw new InvalidDataException($"Artifact checksum mismatch for {manifest.Version}.");
+            }
+            if (string.Equals(manifest.RuntimeParityContractVersion, "v1", StringComparison.Ordinal))
+            {
+                string fixturePath = Path.Combine(directory, "runtime_parity.json");
+                if (!File.Exists(fixturePath))
+                {
+                    throw new InvalidDataException($"Runtime parity fixture is missing for {manifest.Version}.");
+                }
+                using OnnxModelBundle bundle = OnnxModelBundle.Load(directory);
+                bundle.VerifyRuntimeParity(fixturePath);
+                logger.LogInformation("Python/ONNX/.NET parity passed for {Version}.", manifest.Version);
             }
 
             ModelVersion? existing = await dbContext.ModelVersions.SingleOrDefaultAsync(
@@ -79,15 +91,36 @@ public sealed class ModelPromotionJob(
 
             if (manifest.ProductionEligible && !existing.IsProduction)
             {
-                await dbContext.ModelVersions
-                    .Where(x => x.AssetClass == manifest.AssetClass &&
-                                x.HorizonDays == manifest.HorizonDays && x.IsProduction)
-                    .ExecuteUpdateAsync(
-                        setters => setters.SetProperty(x => x.IsProduction, false),
+                // Artifact eligibility is historical evidence, not production authority.
+                // Production changes require a separately audited manual decision after
+                // matured live outcomes pass the server-side evidence gates.
+                logger.LogWarning(
+                    "Model {Version} declares production eligibility, but automatic promotion is disabled; " +
+                    "the bundle remains shadow-only pending live evidence and manual approval.",
+                    manifest.Version);
+                bool holdRecorded = dbContext.ModelPromotionDecisions.Local.Any(decision =>
+                        decision.ModelVersionId == existing.Id && decision.Decision == "held") ||
+                    await dbContext.ModelPromotionDecisions.AnyAsync(decision =>
+                            decision.ModelVersionId == existing.Id && decision.Decision == "held",
                         context.CancellationToken);
-                existing.IsProduction = true;
-                existing.IsShadowCandidate = false;
-                logger.LogInformation("Promoted model {Version} for {Horizon} days.", manifest.Version, manifest.HorizonDays);
+                if (!holdRecorded)
+                {
+                    dbContext.ModelPromotionDecisions.Add(new ModelPromotionDecision
+                    {
+                        ModelVersionId = existing.Id,
+                        Decision = "held",
+                        DecidedBy = "system:manifest-guard",
+                        Reason = "Offline artifact eligibility cannot authorize production without matured live evidence and manual review.",
+                        EvidenceJson = JsonSerializer.Serialize(new
+                        {
+                            manifest.ProductionEligible,
+                            manifest.DirectionEligible,
+                            manifest.ScenarioEligible,
+                            manifest.RuntimeParityContractVersion
+                        }, JsonOptions),
+                        DecidedAt = timeProvider.GetUtcNow()
+                    });
+                }
             }
         }
 
@@ -102,10 +135,7 @@ public sealed class ModelPromotionJob(
         foreach (IGrouping<(string AssetClass, int HorizonDays), ModelVersion> group in shadowModels
                      .GroupBy(x => (x.AssetClass, x.HorizonDays)))
         {
-            ModelVersion winner = group
-                .OrderByDescending(x => x.TrainedAt)
-                .ThenByDescending(x => x.Version, StringComparer.Ordinal)
-                .First();
+            ModelVersion winner = SelectShadowCandidate(group);
             foreach (ModelVersion model in group)
             {
                 model.IsShadowCandidate = model.Id == winner.Id;
@@ -117,6 +147,21 @@ public sealed class ModelPromotionJob(
                 winner.Version);
         }
         await dbContext.SaveChangesAsync(context.CancellationToken);
+    }
+
+    public static ModelVersion SelectShadowCandidate(IEnumerable<ModelVersion> models)
+    {
+        ModelVersion[] ordered = models
+            .OrderByDescending(model => model.TrainedAt)
+            .ThenByDescending(model => model.Version, StringComparer.Ordinal)
+            .ToArray();
+        if (ordered.Length == 0)
+        {
+            throw new ArgumentException("At least one model is required.", nameof(models));
+        }
+        return ordered.FirstOrDefault(model => model.DirectionEligible || model.ScenarioEligible)
+            ?? ordered.FirstOrDefault(model => model.IsShadowCandidate)
+            ?? ordered[0];
     }
 
     private static string ComputeArtifactSha(string directory)
